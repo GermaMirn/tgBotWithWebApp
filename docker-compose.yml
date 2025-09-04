@@ -1,0 +1,310 @@
+version: '3.8'
+
+services:
+  tg-bot:
+    build:
+      context: ./tgBot-services
+    container_name: tg-bot
+    restart: unless-stopped
+    volumes:
+      - ./tgBot-services:/app
+    env_file:
+      - ./tgBot-services/.env
+    ports:
+      - "8001:8001"
+
+  auth-service:
+    build:
+      context: ./auth-service
+    container_name: auth-service
+    ports:
+      - "8002:8002"
+    environment:
+      - SECRET_KEY=your-secret-key-here
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=auth_db
+      - DB_HOST=auth-db
+      - ADMIN_TELEGRAM_IDS=7667986933,987654321
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  auth-db:
+    image: postgres:15
+    container_name: auth-db
+    environment:
+      - POSTGRES_DB=auth_db
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5440:5432"
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U postgres || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - app-network
+
+  frontend:
+    build:
+      context: ./frontend
+    command: npm run dev -- --host 0.0.0.0
+    ports:
+      - "5173:5173"
+    networks:
+      - app-network
+
+  bff:
+    build:
+      context: ./bff
+    container_name: bff-service
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./bff:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - SECRET_KEY=your-secret-key-here
+    restart: always
+    networks:
+      - app-network
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./infrastructure/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - tg-bot
+      - bff
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  cloudpub:
+    image: cloudpub/cloudpub:latest
+    platform: linux/amd64
+    network_mode: "bridge"
+    environment:
+      - TOKEN=${CLOUDPUB_TOKEN}
+    command: publish http host.docker.internal:80
+    volumes:
+      - cloudpub-config:/home/cloudpub/.cloudpub
+
+  # Новые базы данных для микросервисов
+  teachers-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: teachers_service
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - teachers_db_data:/var/lib/postgresql/data
+    ports:
+      - "5441:5432"
+    networks:
+      - app-network
+
+  students-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: students_service
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - students_db_data:/var/lib/postgresql/data
+    ports:
+      - "5442:5432"
+    networks:
+      - app-network
+
+  groups-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: groups_service
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - groups_db_data:/var/lib/postgresql/data
+    ports:
+      - "5443:5432"
+    networks:
+      - app-network
+
+  calendary-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: calendary_service
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - calendar_db_data:/var/lib/postgresql/data
+    ports:
+      - "5444:5432"
+    networks:
+      - app-network
+
+  notifications-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: notifications_service
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - notifications_db_data:/var/lib/postgresql/data
+    ports:
+      - "5445:5432"
+    networks:
+      - app-network
+
+  lessons-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: lessons_service
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - lessons_db_data:/var/lib/postgresql/data
+    ports:
+      - "5446:5432"
+    networks:
+      - app-network
+
+  # Redis для кэширования и очередей
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+
+  # Новые микросервисы
+  teachers-service:
+    build: ./teachers-service
+    container_name: teachers-service
+    ports:
+      - "8003:8003"
+    env_file:
+      - ./teachers-service/.env
+    depends_on:
+      - teachers-db
+      - redis
+    networks:
+      - app-network
+
+  students-service:
+    build: ./students-service
+    container_name: students-service
+    ports:
+      - "8004:8004"
+    env_file:
+      - ./students-service/.env
+    depends_on:
+      - students-db
+      - redis
+    networks:
+      - app-network
+
+  groups-service:
+    build: ./groups-service
+    container_name: groups-service
+    ports:
+      - "8005:8005"
+    env_file:
+      - ./groups-service/.env
+    depends_on:
+      - groups-db
+      - redis
+    networks:
+      - app-network
+
+  calendary-service:
+    build: ./calendary-service
+    container_name: calendary-service
+    ports:
+      - "8006:8006"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=calendary_service
+      - DB_HOST=calendary-db
+    depends_on:
+      - calendary-db
+      - redis
+    networks:
+      - app-network
+
+  notifications-service:
+    build: ./notifications-service
+    container_name: notifications-service
+    ports:
+      - "8007:8007"
+    env_file:
+      - ./notifications-service/.env
+    depends_on:
+      - notifications-db
+      - redis
+    networks:
+      - app-network
+
+  lessons-service:
+    build: ./lessons-service
+    container_name: lessons-service
+    ports:
+      - "8008:8008"
+    env_file:
+      - ./lessons-service/.env
+    depends_on:
+      - lessons-db
+      - redis
+    networks:
+      - app-network
+
+  # # Мониторинг
+  # prometheus:
+  #   image: prom/prometheus
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./infrastructure/prometheus:/etc/prometheus
+  #   networks:
+  #     - app-network
+
+  # grafana:
+  #   image: grafana/grafana
+  #   ports:
+  #     - "3001:3000"
+  #   volumes:
+  #     - grafana_data:/var/lib/grafana
+  #   networks:
+  #     - app-network
+
+volumes:
+  cloudpub-config:
+  auth_db_data:
+  teachers_db_data:
+  students_db_data:
+  groups_db_data:
+  calendar_db_data:
+  notifications_db_data:
+  lessons_db_data:
+  redis_data:
+  grafana_data:
+
+networks:
+  app-network:
+    driver: bridge

@@ -1,15 +1,13 @@
-version: '3.8'
-
 services:
-  tg-bot:
+  tg-bot-service:
     build:
-      context: ./tgBot-services
-    container_name: tg-bot
+      context: ./tg-bot-service
+    container_name: tg-bot-service
     restart: unless-stopped
     volumes:
-      - ./tgBot-services:/app
+      - ./tg-bot-service:/app
     env_file:
-      - ./tgBot-services/.env
+      - ./tg-bot-service/.env
     ports:
       - "8001:8001"
 
@@ -54,23 +52,23 @@ services:
     networks:
       - app-network
 
-  frontend:
+  frontend-service:
     build:
-      context: ./frontend
+      context: ./frontend-service
     command: npm run dev -- --host 0.0.0.0
     ports:
       - "5173:5173"
     networks:
       - app-network
 
-  bff:
+  bff-service:
     build:
-      context: ./bff
+      context: ./bff-service
     container_name: bff-service
     ports:
       - "8000:8000"
     volumes:
-      - ./bff:/app
+      - ./bff-service:/app
     environment:
       - PYTHONUNBUFFERED=1
       - SECRET_KEY=your-secret-key-here
@@ -86,9 +84,9 @@ services:
     volumes:
       - ./infrastructure/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - frontend
-      - tg-bot
-      - bff
+      - frontend-service
+      - tg-bot-service
+      - bff-service
     restart: unless-stopped
     networks:
       - app-network
@@ -182,7 +180,6 @@ services:
     networks:
       - app-network
 
-  # Redis для кэширования и очередей
   redis:
     image: redis:7-alpine
     ports:
@@ -192,7 +189,6 @@ services:
     networks:
       - app-network
 
-  # Новые микросервисы
   teachers-service:
     build: ./teachers-service
     container_name: teachers-service

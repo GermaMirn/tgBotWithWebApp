@@ -7,8 +7,36 @@
   >
     <div class="booking-details" v-if="slot && date">
       <div class="booking-info">
+        <p><strong>Название:</strong> {{ slot.lesson.title }}</p>
+        <p><strong>Описани:</strong> {{ slot.lesson.description }}</p>
         <p><strong>Дата:</strong> {{ formatDate(date) }}</p>
         <p><strong>Время:</strong> {{ slot.time }}</p>
+        <p><strong>Тип:</strong> {{ slot.lesson.lesson_type }}</p>
+        <p><strong>Язык:</strong> {{ slot.lesson.language }}</p>
+        <p><strong>Уровень:</strong> {{ slot.lesson.level }}</p>
+
+        <div class="detail-section">
+          <h3>Учитель</h3>
+          <div class="user-card">
+            <i class="pi pi-user user-icon"></i>
+            <span>{{ slot.teacher.full_name }}</span>
+          </div>
+        </div>
+
+        <div v-if="slot.lesson.booked" class="detail-section">
+          <h3>{{ slot.lesson.booked_by.type === 'student' ? 'Студент' : 'Группа'  }}</h3>
+          <div
+            v-if="slot.lesson.booked && slot.lesson.booked_by"
+            class="user-card"
+          >
+            <i class="pi pi-user user-icon"></i>
+            <div class="user-info">
+              <div>
+                <strong>{{ slot.lesson.booked_by.name || 'Неизвестный пользователь' }}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -19,7 +47,31 @@
         text
         @click="close"
       />
+
+      <!-- Если студент уже записан -->
       <Button
+        v-if="!isTeacher && isAlreadyBooked"
+        label="Отменить запись"
+        icon="pi pi-user-minus"
+        class="p-button-danger cancel-btn"
+        outlined
+        @click="cancelBooking"
+        :loading="loading"
+      />
+
+      <Button
+        v-else-if="isTeacher && !slot?.lesson?.booked"
+        label="Удалить сессию"
+        icon="pi pi-trash"
+        class="p-button-danger cancel-btn"
+        outlined
+        @click="deleteLesson"
+        :loading="loading"
+      />
+
+      <!-- Если слот свободен -->
+      <Button
+        v-else="!isTeacher"
         label="Подтвердить"
         icon="pi pi-check"
         @click="confirm"
@@ -30,10 +82,11 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, PropType, ref, watch } from 'vue'
+import { defineComponent, PropType, ref, watch, computed } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import type { TimeSlotResponse } from '@/types/calendar'
+import { useUserStore } from '@/stores/user'
 
 export default defineComponent({
   name: 'BookingDialog',
@@ -44,20 +97,29 @@ export default defineComponent({
     date: { type: Object as PropType<Date | null>, default: null },
     loading: { type: Boolean, default: false }
   },
-  emits: ['update:visible', 'confirm', 'cancel'],
+  emits: ['update:visible', 'confirm', 'cancel', 'delete'],
   setup(props, { emit }) {
     const visibleLocal = ref(props.visible)
+    const userStore = useUserStore()
 
     watch(() => props.visible, val => (visibleLocal.value = val))
     watch(visibleLocal, val => emit('update:visible', val))
 
     const close = () => (visibleLocal.value = false)
     const confirm = () => emit('confirm')
+    const cancelBooking = () => emit('cancel')
+    const deleteLesson = () => emit('delete')
 
     const formatDate = (date: Date) =>
       date.toLocaleDateString('ru-RU', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 
-    return { visibleLocal, close, confirm, formatDate }
+    const isAlreadyBooked = computed(() => {
+      return props.slot?.lesson?.booked && props.slot.lesson.booked_by?.id === userStore.userData?.id
+    })
+
+    const isTeacher = computed(() => userStore.userData?.role === 'teacher')
+
+    return { visibleLocal, isAlreadyBooked, isTeacher, userStore, close, confirm, deleteLesson, cancelBooking, formatDate }
   }
 })
 </script>
@@ -121,5 +183,40 @@ export default defineComponent({
   color: #ef4444;
   font-size: 0.875rem;
   margin-top: 0.25rem;
+}
+
+.user-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  border-radius: 12px;
+  margin: 0.25rem 0;
+  border: 1px solid var(--primary-color);
+  color: var(--primary-color);
+}
+
+.detail-section {
+  margin-bottom: 2rem;
+}
+
+.detail-section:last-child {
+  margin-bottom: 0;
+}
+
+.detail-section h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-color);
+  border-bottom: 2px solid var(--surface-border);
+  padding-bottom: 0.5rem;
+}
+
+.cancel-btn {
+  font-size: 0.85rem;
+  padding: 0.4rem 0.75rem;
+  line-height: 1.2;
+  border: none;
 }
 </style>

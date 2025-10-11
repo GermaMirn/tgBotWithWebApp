@@ -18,7 +18,3 @@ class Teacher(Base):
   education = Column(Text, nullable=True)
   certificates = Column(Text, nullable=True)  # JSON строка с сертификатами
   hourly_rate = Column(Float, nullable=True)  # Почасовая ставка
-
-
-
-

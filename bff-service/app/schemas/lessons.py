@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, model_validator
 from enum import Enum
+from uuid import UUID
 
 class LessonStatus(str, Enum):
   scheduled = "SCHEDULED"
@@ -53,9 +54,28 @@ class LessonSessionUpdate(BaseModel):
   end_time: Optional[datetime] = None
   status: Optional[LessonStatus] = None
 
+class BookedByShort(BaseModel):
+  type: str
+  id: str
+  name:  Optional[str] = None
+
+class LessonShort(BaseModel):
+  id: int
+  title: str
+  description: Optional[str] = None
+  lesson_type: str
+  language: str
+  level: str
+  teacher_telegram_id: int
+
+  class Config:
+    orm_mode = True
+
 class LessonSessionResponse(LessonSessionBase):
   id: int
   status: LessonStatus
+  booked: bool
+  lesson: Optional[LessonShort] = None
   class Config:
       orm_mode = True
 
@@ -109,3 +129,29 @@ class CreateFullLessonPayload(BaseModel):
   lesson: LessonCreate
   session: LessonSessionCreate
   teacher_telegram_id: int
+
+class EnrollmentCreate(BaseModel):
+  lesson_id: int
+  student_id: Optional[UUID] = None
+  group_id: Optional[int] = None
+
+  model_config = {
+    "json_schema_extra": {
+      "example": {
+        "lesson_id": 1,
+        "student_id": "123e4567-e89b-12d3-a456-426614174000",
+        "group_id": None
+      }
+    }
+  }
+
+  @model_validator(mode='after')
+  def validate_student_or_group(self):
+    if self.student_id is None and self.group_id is None:
+      raise ValueError('Either student_id or group_id must be provided')
+    if self.student_id is not None and self.group_id is not None:
+      raise ValueError('Provide either student_id OR group_id, not both')
+    return self
+
+class BulkEnrollmentRequest(BaseModel):
+  student_ids: List[UUID]

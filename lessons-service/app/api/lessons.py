@@ -1,5 +1,5 @@
-# app/api/lessons.py
 from fastapi import APIRouter, Depends, HTTPException, Query
+from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, date
 from typing import List, Optional
@@ -62,9 +62,10 @@ async def list_sessions_by_teacher(
   req: schemas.TeacherSessionsRequest,
   db: AsyncSession = Depends(get_async_db)
 ):
-  return await crud.list_sessions_by_teacher_and_range(
+  res = await crud.list_sessions_by_teacher_and_range(
     db, req.teacher_telegram_id, req.start, req.end
   )
+  return res
 
 @router.put("/sessions/{session_id}", response_model=schemas.LessonSessionResponse)
 async def update_session(session_id: int, payload: schemas.LessonSessionUpdate, db: AsyncSession = Depends(get_async_db)):
@@ -121,7 +122,6 @@ async def list_attendance(lesson_id: int, db: AsyncSession = Depends(get_async_d
 async def free_slots(
   teacher_telegram_id: int,
   the_date: date = Query(..., description="YYYY-MM-DD"),
-  calendary_base_url: str = Query("http://calendary-service:8000", description="URL calendary-service"),
   db: AsyncSession = Depends(get_async_db)
 ):
   day_start = datetime(the_date.year, the_date.month, the_date.day, 0, 0, 0)
@@ -140,3 +140,63 @@ async def free_slots(
     date=the_date.isoformat(),
     slots=slots
   )
+
+
+# ---- ENROLLMENT ----
+@router.post("/enroll", response_model=schemas.LessonParticipantResponse)
+async def enroll_to_lesson(
+    payload: schemas.EnrollmentCreate,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Записать студента или группу на занятие
+    """
+    try:
+        return await crud.enroll_participant(db, payload)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+@router.get("/{lesson_id}/participants", response_model=List[schemas.LessonParticipantResponse])
+async def get_lesson_participants(
+    lesson_id: int,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Получить список участников занятия
+    """
+    participants = await crud.get_lesson_participants(db, lesson_id)
+    if not participants:
+        raise HTTPException(404, "No participants found for this lesson")
+    return participants
+
+@router.delete("/{lesson_id}/participants/{student_id}", status_code=204)
+async def remove_student_from_lesson(
+    lesson_id: int,
+    student_id: UUID,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Отписать студента от занятия
+    """
+    participant = await crud.get_participant_by_lesson_and_student(db, lesson_id, student_id)
+    if not participant:
+        raise HTTPException(404, "Student not found in this lesson")
+
+    await crud.remove_participant(db, participant)
+    return None
+
+@router.delete("/{lesson_id}/participants/group/{group_id}", status_code=204)
+async def remove_group_from_lesson(
+    lesson_id: int,
+    group_id: int,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Отписать группу от занятия
+    """
+    participant = await crud.get_participant_by_lesson_and_group(db, lesson_id, group_id)
+    if not participant:
+        raise HTTPException(404, "Group not found in this lesson")
+
+    await crud.remove_participant(db, participant)
+    return None

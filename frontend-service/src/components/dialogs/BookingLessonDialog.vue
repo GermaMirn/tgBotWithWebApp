@@ -50,7 +50,7 @@
 
       <!-- Если студент уже записан -->
       <Button
-        v-if="!isTeacher && isAlreadyBooked"
+        v-if="slot?.lesson?.booked"
         label="Отменить запись"
         icon="pi pi-user-minus"
         class="p-button-danger cancel-btn"
@@ -113,13 +113,9 @@ export default defineComponent({
     const formatDate = (date: Date) =>
       date.toLocaleDateString('ru-RU', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 
-    const isAlreadyBooked = computed(() => {
-      return props.slot?.lesson?.booked && props.slot.lesson.booked_by?.id === userStore.userData?.id
-    })
-
     const isTeacher = computed(() => userStore.userData?.role === 'teacher')
 
-    return { visibleLocal, isAlreadyBooked, isTeacher, userStore, close, confirm, deleteLesson, cancelBooking, formatDate }
+    return { visibleLocal, isTeacher, userStore, close, confirm, deleteLesson, cancelBooking, formatDate }
   }
 })
 </script>

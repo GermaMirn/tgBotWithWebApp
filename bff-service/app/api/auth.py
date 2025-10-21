@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from app.core.auth import get_current_user
 from app.schemas.telegram import TelegramMiniAppPayload
-from app.services.auth_service import login_or_register, login_user, get_user_by_token
+from app.services.auth_service import login_or_register, login_user, get_user_by_token, get_user_by_id
 from app.services.student_service import create_student_if_not_exists
+from app.services.notification_service import notification_service
 import httpx
 
 router = APIRouter()
@@ -19,6 +20,15 @@ async def miniapp_entry(data: TelegramMiniAppPayload):
 
         # Автоматически создаем студента при первом входе
         await create_student_if_not_exists(data.id)
+
+        if data.chat_id:
+            try:
+                user_id = await get_user_by_id(data.id)
+                if user_id:
+                    await notification_service.set_user_chat_id(user_id["id"], data.chat_id)
+                    print('chat_id registered: success')
+            except Exception as e:
+                print(f"Warning: Chat registration failed: {e}")
 
         return {"access_token": access_token}
     except Exception as e:

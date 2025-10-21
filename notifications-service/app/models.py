@@ -3,6 +3,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.database import Base
 import enum
+from sqlalchemy.dialects.postgresql import UUID
 
 class NotificationType(enum.Enum):
   LESSON_REMINDER = "lesson_reminder"
@@ -35,7 +36,7 @@ class Notification(Base):
   id = Column(Integer, primary_key=True, index=True)
 
   # Получатель
-  recipient_telegram_id = Column(BigInteger, nullable=False, index=True)
+  user_id = Column(UUID(as_uuid=True), nullable=False, index=True)
 
   # Тип и статус
   notification_type = Column(Enum(NotificationType), nullable=False)
@@ -66,7 +67,8 @@ class UserNotificationSettings(Base):
   __tablename__ = "user_notification_settings"
 
   id = Column(Integer, primary_key=True, index=True)
-  user_telegram_id = Column(BigInteger, unique=True, nullable=False)
+  user_id = Column(UUID(as_uuid=True), unique=True, nullable=False, index=True)
+  chat_id = Column(BigInteger, nullable=True, index=True)
 
   # Настройки по каналам
   telegram_enabled = Column(Boolean, default=True)

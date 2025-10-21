@@ -10,6 +10,11 @@ services:
       - ./tg-bot-service/.env
     ports:
       - "8001:8001"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - app-network
 
   auth-service:
     build:
@@ -58,6 +63,12 @@ services:
     command: npm run dev -- --host 0.0.0.0
     ports:
       - "5173:5173"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5173"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - app-network
 
@@ -84,9 +95,12 @@ services:
     volumes:
       - ./infrastructure/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
-      - frontend-service
-      - tg-bot-service
-      - bff-service
+      frontend-service:
+        condition: service_healthy
+      tg-bot-service:
+        condition: service_started
+      bff-service:
+        condition: service_started
     restart: unless-stopped
     networks:
       - app-network
@@ -112,6 +126,12 @@ services:
       - teachers_db_data:/var/lib/postgresql/data
     ports:
       - "5441:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U postgres || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks:
       - app-network
 
@@ -125,6 +145,12 @@ services:
       - students_db_data:/var/lib/postgresql/data
     ports:
       - "5442:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U postgres || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks:
       - app-network
 
@@ -138,6 +164,12 @@ services:
       - groups_db_data:/var/lib/postgresql/data
     ports:
       - "5443:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U postgres || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks:
       - app-network
 
@@ -151,19 +183,31 @@ services:
       - calendar_db_data:/var/lib/postgresql/data
     ports:
       - "5444:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U postgres || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks:
       - app-network
 
   notifications-db:
     image: postgres:15
     environment:
-      POSTGRES_DB: notifications_service
+      POSTGRES_DB: notification_service
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     volumes:
       - notifications_db_data:/var/lib/postgresql/data
     ports:
       - "5445:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U postgres || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks:
       - app-network
 
@@ -177,6 +221,12 @@ services:
       - lessons_db_data:/var/lib/postgresql/data
     ports:
       - "5446:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U postgres || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks:
       - app-network
 
@@ -186,6 +236,11 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     networks:
       - app-network
 
@@ -197,8 +252,10 @@ services:
     env_file:
       - ./teachers-service/.env
     depends_on:
-      - teachers-db
-      - redis
+      teachers-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - app-network
 
@@ -210,8 +267,10 @@ services:
     env_file:
       - ./students-service/.env
     depends_on:
-      - students-db
-      - redis
+      students-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - app-network
 
@@ -223,8 +282,10 @@ services:
     env_file:
       - ./groups-service/.env
     depends_on:
-      - groups-db
-      - redis
+      groups-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - app-network
 
@@ -239,8 +300,10 @@ services:
       - POSTGRES_DB=calendary_service
       - DB_HOST=calendary-db
     depends_on:
-      - calendary-db
-      - redis
+      calendary-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - app-network
 
@@ -252,8 +315,19 @@ services:
     env_file:
       - ./notifications-service/.env
     depends_on:
-      - notifications-db
-      - redis
+      rabbitmq:
+        condition: service_healthy
+      notifications-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8007/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
     networks:
       - app-network
 
@@ -265,8 +339,30 @@ services:
     env_file:
       - ./lessons-service/.env
     depends_on:
-      - lessons-db
-      - redis
+      lessons-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"   # AMQP protocol
+      - "15672:15672" # Management UI
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=admin123
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 30s
+      retries: 10
+      start_period: 100s
     networks:
       - app-network
 
@@ -300,6 +396,7 @@ volumes:
   lessons_db_data:
   redis_data:
   grafana_data:
+  rabbitmq_data:
 
 networks:
   app-network:

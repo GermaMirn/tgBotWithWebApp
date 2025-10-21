@@ -2,32 +2,7 @@ from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional, Any
 from uuid import UUID
-import enum
-
-class NotificationType(enum.Enum):
-  LESSON_REMINDER = "lesson_reminder"
-  LESSON_CANCELLED = "lesson_cancelled"
-  LESSON_RESCHEDULED = "lesson_rescheduled"
-  GROUP_INVITATION = "group_invitation"
-  GROUP_JOINED = "group_joined"
-  GROUP_LEFT = "group_left"
-  ASSIGNMENT_DUE = "assignment_due"
-  GRADE_RECEIVED = "grade_received"
-  SYSTEM_MESSAGE = "system_message"
-  TEACHER_MESSAGE = "teacher_message"
-
-class NotificationStatus(enum.Enum):
-  PENDING = "pending"
-  SENT = "sent"
-  DELIVERED = "delivered"
-  READ = "read"
-  FAILED = "failed"
-
-class NotificationChannel(enum.Enum):
-  TELEGRAM = "telegram"
-  EMAIL = "email"
-  SMS = "sms"
-  PUSH = "push"
+from app.models import NotificationType, NotificationStatus, NotificationChannel
 
 class NotificationBase(BaseModel):
     user_id: UUID
@@ -113,3 +88,4 @@ class NeedChatIdResponse(BaseModel):
 
 class SuccessResponse(BaseModel):
     status: str = "success"
+

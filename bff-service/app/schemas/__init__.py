@@ -22,6 +22,11 @@ from .notification import (
   NotificationBase, NotificationCreate, NotificationType, NotificationStatus, NotificationChannel
 )
 
+# Language schemas
+from .language import (
+  StudioLanguageBase, StudioLanguageCreate, StudioLanguageUpdate, StudioLanguageRead
+)
+
 __all__ = [
   # User
   "UserBase", "UserCreate", "UserUpdate",
@@ -40,4 +45,7 @@ __all__ = [
 
   # Notification
   "NotificationBase", "NotificationCreate", "NotificationType", "NotificationStatus", "NotificationChannel",
+
+  # Language
+  "StudioLanguageBase", "StudioLanguageCreate", "StudioLanguageUpdate", "StudioLanguageRead",
 ]

@@ -193,6 +193,7 @@
       :lesson="newLesson"
       :session="newSession"
       :lesson-types="lessonTypes"
+      :language-options="languageOptions"
       @save="createLesson"
     />
   </div>
@@ -206,6 +207,7 @@ import { useUserStore } from '@/stores/user'
 import { calendarApi } from '@/services/api/calendar'
 import { teachersApi } from '@/services/api/teachers'
 import { lessonsApi } from '@/services/api/lessons'
+import { languagesApi } from '@/services/api/languages'
 import type { CalendarResponse, TeacherSpecialDayUpdate, TimeSlotResponse } from '@/types/calendar'
 import type { Teacher } from '@/types/teacher'
 import type { LessonSessionResponse } from '@/types/lessons'
@@ -254,7 +256,8 @@ export default defineComponent({
         { label: "Индивидуальный", value: "INDIVIDUAL" },
         { label: "Групповой", value: "GROUP" },
         { label: "Пробный", value: "TRIAL" }
-      ]
+      ],
+      languageOptions: [] as Array<{ label: string; value: string }>
     }
   },
   computed: {
@@ -793,7 +796,20 @@ export default defineComponent({
       return `${hours}:${minutes}`
     }
   },
+  async loadLanguages() {
+    try {
+      const languages = await languagesApi.getLanguages(true) // только активные
+      this.languageOptions = languages.map(lang => ({
+        label: lang.name,
+        value: lang.code
+      }))
+    } catch (error) {
+      console.error('Failed to load languages:', error)
+      this.languageOptions = []
+    }
+  },
   async mounted() {
+    await this.loadLanguages()
     if (!this.isTeacher) {
       await this.loadTeachers()
     }

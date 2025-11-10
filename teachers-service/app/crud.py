@@ -89,3 +89,72 @@ async def delete_teacher_by_telegram_id(db: AsyncSession, telegram_id: int) -> b
         await db.commit()
         return True
     return False
+
+# StudioLanguage CRUD operations
+async def get_studio_languages(db: AsyncSession, active_only: bool = False) -> List[models.StudioLanguage]:
+    """Получить список языков студии"""
+    query = select(models.StudioLanguage)
+    if active_only:
+        query = query.filter(models.StudioLanguage.is_active == True)
+    result = await db.execute(query.order_by(models.StudioLanguage.name))
+    return result.scalars().all()
+
+async def get_studio_language(db: AsyncSession, language_id: int) -> Optional[models.StudioLanguage]:
+    """Получить язык по ID"""
+    result = await db.execute(select(models.StudioLanguage).filter(models.StudioLanguage.id == language_id))
+    return result.scalars().first()
+
+async def get_studio_language_by_code(db: AsyncSession, code: str) -> Optional[models.StudioLanguage]:
+    """Получить язык по коду"""
+    result = await db.execute(select(models.StudioLanguage).filter(models.StudioLanguage.code == code))
+    return result.scalars().first()
+
+async def create_studio_language(db: AsyncSession, language_data) -> models.StudioLanguage:
+    """Создать новый язык"""
+    existing_by_code = await get_studio_language_by_code(db, language_data.code)
+    if existing_by_code:
+        raise ValueError(f"Язык с кодом '{language_data.code}' уже существует")
+
+    existing_by_name = await db.execute(
+        select(models.StudioLanguage).filter(models.StudioLanguage.name == language_data.name)
+    )
+    if existing_by_name.scalars().first():
+        raise ValueError(f"Язык с названием '{language_data.name}' уже существует")
+
+    db_language = models.StudioLanguage(
+        name=language_data.name,
+        code=language_data.code,
+        is_active=language_data.is_active if hasattr(language_data, 'is_active') else True
+    )
+    db.add(db_language)
+    await db.commit()
+    await db.refresh(db_language)
+    return db_language
+
+async def update_studio_language(db: AsyncSession, language: models.StudioLanguage, update_data) -> models.StudioLanguage:
+    """Обновить язык"""
+    if hasattr(update_data, 'code') and update_data.code and update_data.code != language.code:
+        existing = await get_studio_language_by_code(db, update_data.code)
+        if existing:
+            raise ValueError(f"Язык с кодом '{update_data.code}' уже существует")
+
+    if hasattr(update_data, 'name') and update_data.name and update_data.name != language.name:
+        existing = await db.execute(
+            select(models.StudioLanguage).filter(
+                models.StudioLanguage.name == update_data.name,
+                models.StudioLanguage.id != language.id
+            )
+        )
+        if existing.scalars().first():
+            raise ValueError(f"Язык с названием '{update_data.name}' уже существует")
+
+    for key, value in update_data.dict(exclude_unset=True).items():
+        setattr(language, key, value)
+    await db.commit()
+    await db.refresh(language)
+    return language
+
+async def delete_studio_language(db: AsyncSession, language: models.StudioLanguage) -> None:
+    """Удалить язык"""
+    await db.delete(language)
+    await db.commit()

@@ -22,8 +22,6 @@ export default defineConfig({
       'Access-Control-Allow-Origin': '*'
     },
     allowedHosts: [
-      'sloppily-treasured-creeper.cloudpub.ru',
-      'stoutly-queenly-gerenuk.cloudpub.ru',
       'localhost',
       '.cloudpub.ru'
     ], // поменять на свои домены в проде

@@ -94,7 +94,9 @@
 import { defineComponent } from 'vue'
 import { useUserStore } from '@/stores/user'
 import { groupsApi } from '@/services/api/groups'
+import { languagesApi } from '@/services/api/languages'
 import type { Group } from '@/types/groups'
+import type { StudioLanguage } from '@/types/languages'
 import Button from 'primevue/button'
 import CreateGroupDialog from '@/components/dialogs/CreateGroupDialog.vue'
 
@@ -122,10 +124,7 @@ export default defineComponent({
         start_date: null as string | null,
         end_date: null as string | null,
       },
-      languageOptions: [
-        { label: 'Китайский', value: 'chinese' },
-        { label: 'Английский', value: 'en' },
-      ],
+      languageOptions: [] as Array<{ label: string; value: string }>,
       levelOptions: [
         { label: 'Начальный', value: 'beginner' },
         { label: 'Средний', value: 'intermediate' },
@@ -148,6 +147,19 @@ export default defineComponent({
     }
   },
   methods: {
+    async loadLanguages() {
+      try {
+        const languages = await languagesApi.getLanguages(true) // только активные
+        this.languageOptions = languages.map(lang => ({
+          label: lang.name,
+          value: lang.code
+        }))
+      } catch (error) {
+        console.error('Failed to load languages:', error)
+        // Если не удалось загрузить, используем пустой список
+        this.languageOptions = []
+      }
+    },
     async loadGroups() {
       if (!this.isAuthenticated) return
       this.loading = true
@@ -272,7 +284,8 @@ export default defineComponent({
       this.showCreateGroup = true
     },
   },
-  mounted() {
+  async mounted() {
+    await this.loadLanguages()
     this.loadGroups()
   }
 })

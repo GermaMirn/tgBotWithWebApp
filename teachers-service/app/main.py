@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app import models
 from app.config import settings
-from app.api import teachers
+from app.api import teachers, languages
 from app.database import get_db
 
 
@@ -31,3 +31,4 @@ async def health_check():
 
 # Подключаем роутеры
 app.include_router(teachers.router, prefix="/teachers", tags=["teachers"])
+app.include_router(languages.router, prefix="/languages", tags=["languages"])

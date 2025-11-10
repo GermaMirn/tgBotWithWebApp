@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from uuid import UUID
+from datetime import datetime
 
 class TeacherBase(BaseModel):
     bio: Optional[str] = Field(None, description="Биография преподавателя", example="Опытный преподаватель английского языка с 5-летним стажем")
@@ -19,6 +20,28 @@ class TeacherUpdate(TeacherBase):
 class TeacherResponse(TeacherBase):
     id: UUID
     telegram_id: int
+
+    class Config:
+        from_attributes = True
+
+# StudioLanguage schemas
+class StudioLanguageBase(BaseModel):
+    name: str = Field(..., description="Название языка", example="Английский")
+    code: str = Field(..., description="Код языка", example="en")
+    is_active: Optional[bool] = Field(default=True, description="Активен ли язык")
+
+class StudioLanguageCreate(StudioLanguageBase):
+    pass
+
+class StudioLanguageUpdate(BaseModel):
+    name: Optional[str] = Field(None, description="Название языка")
+    code: Optional[str] = Field(None, description="Код языка")
+    is_active: Optional[bool] = Field(None, description="Активен ли язык")
+
+class StudioLanguageRead(StudioLanguageBase):
+    id: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

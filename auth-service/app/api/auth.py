@@ -5,6 +5,7 @@ from app import crud, schemas
 from app.utils.auth import get_current_user
 from typing import List
 from app.utils.auth import create_access_token
+from uuid import UUID
 
 router = APIRouter(prefix="/auth")
 
@@ -80,6 +81,17 @@ async def get_user_by_telegram(
 ):
   """Получение пользователя по Telegram ID (публичный эндпоинт для BFF)"""
   user = await crud.get_user_by_telegram_id(db, telegram_id)
+  if not user:
+    raise HTTPException(status_code=404, detail="User not found")
+  return user
+
+@router.get("/user-by-uuid/{uuid}", response_model=schemas.UserResponse)
+async def get_user_by_telegram(
+  uuid: UUID,
+  db: AsyncSession = Depends(get_db)
+):
+  """Получение пользователя по UUID"""
+  user = await crud.get_user(db, str(uuid))
   if not user:
     raise HTTPException(status_code=404, detail="User not found")
   return user

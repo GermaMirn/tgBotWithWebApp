@@ -1,7 +1,7 @@
 import axios from "axios";
 
 export const api = axios.create({
-  baseURL: "https://bravely-inviting-flea.cloudpub.ru/api",
+  baseURL: "https://invitingly-dazzling-lyrebird.cloudpub.ru/api",
   headers: {
     "Content-Type": "application/json",
   },

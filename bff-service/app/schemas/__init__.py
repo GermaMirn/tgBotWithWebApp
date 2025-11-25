@@ -14,13 +14,17 @@ from .group import (
 
 # Lesson schemas
 from .lessons import (
-  LessonStatus, LessonType, LessonBase, LessonCreate, LessonUpdate, LessonResponse, LessonSessionBase, LessonSessionCreate, LessonSessionUpdate, LessonSessionResponse, LessonParticipantBase, LessonParticipantCreate, LessonParticipantUpdate, LessonParticipantResponse, LessonAttendanceBase, LessonAttendanceCreate, LessonAttendanceResponse, TimeSlot, FreeSlotsResponse
+  LessonStatus, LessonType, LessonBase, LessonCreate, LessonUpdate, LessonResponse, LessonSessionBase, LessonSessionCreate, LessonSessionUpdate, LessonSessionResponse, LessonParticipantBase, LessonParticipantCreate, LessonParticipantUpdate, LessonParticipantResponse, LessonAttendanceBase, LessonAttendanceCreate, LessonAttendanceResponse, TimeSlot, FreeSlotsResponse, BookedByShort
 )
 
 # Notification schemas
 from .notification import (
-  NotificationBase, NotificationCreate, UserNotificationSettings,
-  NotificationSettingsUpdate, NotificationType, NotificationStatus, NotificationChannel
+  NotificationBase, NotificationCreate, NotificationType, NotificationStatus, NotificationChannel
+)
+
+# Language schemas
+from .language import (
+  StudioLanguageBase, StudioLanguageCreate, StudioLanguageUpdate, StudioLanguageRead
 )
 
 __all__ = [
@@ -40,6 +44,8 @@ __all__ = [
   "LessonStatus", "LessonType", "LessonBase", "LessonCreate", "LessonUpdate", "LessonResponse", "LessonSessionBase", "LessonSessionCreate", "LessonSessionUpdate", "LessonSessionResponse", "LessonParticipantBase", "LessonParticipantCreate", "LessonParticipantUpdate", "LessonParticipantResponse", "LessonAttendanceBase", "LessonAttendanceCreate", "LessonAttendanceResponse", "TimeSlot", "FreeSlotsResponse"
 
   # Notification
-  "NotificationBase", "NotificationCreate", "UserNotificationSettings",
-  "NotificationSettingsUpdate", "NotificationType", "NotificationStatus", "NotificationChannel",
+  "NotificationBase", "NotificationCreate", "NotificationType", "NotificationStatus", "NotificationChannel",
+
+  # Language
+  "StudioLanguageBase", "StudioLanguageCreate", "StudioLanguageUpdate", "StudioLanguageRead",
 ]

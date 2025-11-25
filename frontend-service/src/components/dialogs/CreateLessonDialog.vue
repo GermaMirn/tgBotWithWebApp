@@ -42,7 +42,15 @@
         <InputGroup>
           <InputGroupAddon><i class="pi pi-globe"></i></InputGroupAddon>
           <FloatLabel>
-            <InputText id="lesson_language" v-model="lesson.language" placeholder=" " class="w-full" />
+            <Dropdown
+              id="lesson_language"
+              v-model="lesson.language"
+              :options="languageOptions"
+              optionLabel="label"
+              optionValue="value"
+              placeholder=" "
+              class="w-full"
+            />
             <label for="lesson_language">Язык</label>
           </FloatLabel>
         </InputGroup>
@@ -135,6 +143,7 @@ export default defineComponent({
     lesson: { type: Object as PropType<any>, required: true },
     session: { type: Object as PropType<{ start_time: Date | null, end_time: Date | null }>, required: true },
     lessonTypes: { type: Array as PropType<{ label: string; value: string }[]>, required: true },
+    languageOptions: { type: Array as PropType<{ label: string; value: string }[]>, required: true },
   },
   emits: ['update:visible', 'save', 'cancel'],
   setup(props, { emit }) {

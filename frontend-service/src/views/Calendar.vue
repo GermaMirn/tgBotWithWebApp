@@ -91,25 +91,22 @@
                 v-for="slot in availableSlots"
                 :key="slot.time"
                 class="time-slot"
-                :class="{
-                  'available': slot.available,
-                  'booked': slot.booked,
-                  'unavailable': !slot.available
-                }"
-                @click="slot.available ? bookSlot(slot) : null"
+                :class="slot.status.toLowerCase()"
+                @click="slot.status === 'SCHEDULED' ? bookSlot(slot) : null"
               >
                 <div class="slot-time">{{ slot.time }}</div>
-                <div class="slot-status">
-                  <span v-if="slot.available" class="status-available">
-                    <i class="pi pi-check"></i> Свободно
-                  </span>
-                  <span v-else-if="slot.booked" class="status-booked">
-                    <i class="pi pi-times"></i> Занято
-                  </span>
-                  <span v-else class="status-unavailable">
-                    <i class="pi pi-clock"></i> Недоступно
-                  </span>
-                </div>
+                <span v-if="slot.status === 'SCHEDULED' && slot.lesson.booked" class="status-booked">
+                  <i class="pi pi-user"></i> Занято
+                </span>
+                <span v-else-if="slot.status === 'COMPLETED'" class="status-completed">
+                  <i class="pi pi-check-circle"></i> Завершено
+                </span>
+                <span v-else-if="slot.status === 'IN_PROGRESS'" class="status-in-progress">
+                  <i class="pi pi-check-circle"></i> Проводиться
+                </span>
+                <span v-else class="status-available">
+                  <i class="pi pi-check"></i> Свободно
+                </span>
               </div>
             </div>
           </div>
@@ -186,6 +183,8 @@
       :date="selectedDate"
       :loading="bookingLoading"
       @confirm="confirmBooking"
+      @cancel="cancelBooking"
+      @delete="deleteLesson"
     />
 
     <!-- Диалог создания урока -->
@@ -194,6 +193,7 @@
       :lesson="newLesson"
       :session="newSession"
       :lesson-types="lessonTypes"
+      :language-options="languageOptions"
       @save="createLesson"
     />
   </div>
@@ -207,8 +207,10 @@ import { useUserStore } from '@/stores/user'
 import { calendarApi } from '@/services/api/calendar'
 import { teachersApi } from '@/services/api/teachers'
 import { lessonsApi } from '@/services/api/lessons'
+import { languagesApi } from '@/services/api/languages'
 import type { CalendarResponse, TeacherSpecialDayUpdate, TimeSlotResponse } from '@/types/calendar'
 import type { Teacher } from '@/types/teacher'
+import type { LessonSessionResponse } from '@/types/lessons'
 import { useUiStore } from '@/stores/ui'
 import BookingLessonDialog from '@/components/dialogs/BookingLessonDialog.vue'
 import CreateLessonDialog from '@/components/dialogs/CreateLessonDialog.vue'
@@ -254,7 +256,8 @@ export default defineComponent({
         { label: "Индивидуальный", value: "INDIVIDUAL" },
         { label: "Групповой", value: "GROUP" },
         { label: "Пробный", value: "TRIAL" }
-      ]
+      ],
+      languageOptions: [] as Array<{ label: string; value: string }>
     }
   },
   computed: {
@@ -308,7 +311,7 @@ export default defineComponent({
           isToday: this.isSameDay(date, today),
           isWeekend: date.getDay() === 0 || date.getDay() === 6,
           isWorkDay,
-          hasEvents: (dayData?.booked_slots?.length || 0) > 0,
+          hasEvents: (dayData?.lessons?.length || 0) > 0,
           key: `prev-${date.getTime()}`
         })
       }
@@ -330,7 +333,7 @@ export default defineComponent({
           isToday: this.isSameDay(date, today),
           isWeekend: date.getDay() === 0 || date.getDay() === 6,
           isWorkDay,
-          hasEvents: (dayData?.booked_slots?.length || 0) > 0,
+          hasEvents: (dayData?.lessons?.length || 0) > 0,
           key: `current-${date.getTime()}`
         })
       }
@@ -353,7 +356,7 @@ export default defineComponent({
           isToday: this.isSameDay(date, today),
           isWeekend: date.getDay() === 0 || date.getDay() === 6,
           isWorkDay,
-          hasEvents: (dayData?.booked_slots?.length || 0) > 0,
+          hasEvents: (dayData?.lessons?.length || 0) > 0,
           key: `next-${date.getTime()}`
         })
       }
@@ -427,28 +430,30 @@ export default defineComponent({
           isActive: dayData.is_active,
           startTime: dayData.start_time || '09:00',
           endTime: dayData.end_time || '18:00',
-          bookedSlots: dayData.booked_slots || []
+          lessons: dayData.lessons || []
         }
       } else {
         this.daySettings = {
           isActive: day.isWorkDay || false,
           startTime: '09:00',
           endTime: '18:00',
-          bookedSlots: []
+          lessons: []
         }
       }
 
-      const dayIndex = this.calendarDays.findIndex(d =>
-        !d.otherMonth && this.isSameDay(d.date, day.date)
-      )
-      if (dayIndex !== -1) this.calendarDays[dayIndex].isWorkDay = this.daySettings.isActive
+      this.availableSlots = dayData?.lessons?.map((s: LessonSessionResponse) => {
+        const start = new Date(s.start_time)
+        const end = new Date(s.end_time)
 
-      this.availableSlots = this.daySettings.bookedSlots.map(slotTime => ({
-        time: slotTime,
-        available: !this.daySettings.bookedSlots.includes(slotTime),
-        booked: false,
-        unavailable: false
-      }))
+        return {
+          time: `${start.getHours().toString().padStart(2,'0')}:${start.getMinutes().toString().padStart(2,'0')}` +
+                `-${end.getHours().toString().padStart(2,'0')}:${end.getMinutes().toString().padStart(2,'0')}`,
+          status: s.status,
+          teacher: this.selectedTeacher || this.userStore.userData,
+          lesson: s.lesson ? { ...s.lesson, booked: s.booked, booked_by: s.booked_by } : undefined,
+          raw: s
+        }
+      }) || []
     },
     formatSelectedDate(date: Date) {
       return date.toLocaleDateString('ru-RU', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
@@ -462,6 +467,21 @@ export default defineComponent({
       return ''
     },
     bookSlot(slot: TimeSlotResponse) {
+      if (
+        !this.isTeacher &&
+        !this.isAdmin &&
+        slot.lesson?.booked &&
+        slot.lesson.booked_by?.id !== this.userStore.userData?.id
+      ) {
+        this.$toast.add({
+          severity: 'warn',
+          summary: 'Занято',
+          detail: 'Это время уже занято другим студентом',
+          life: 3000
+        })
+        return
+      }
+
       this.selectedSlot = slot
       this.bookingDialog = true
     },
@@ -469,19 +489,133 @@ export default defineComponent({
       this.bookingLoading = true
       this.ui.showLoading('Подтверждение записи...')
       try {
-        await new Promise((resolve) => setTimeout(resolve, 1000))
+        if (!this.selectedSlot) {
+          throw new Error('Не выбран слот для записи')
+        }
+
+        // Получаем lesson_id из выбранного слота
+        const lessonId = this.selectedSlot.raw.lesson_id
+        if (!lessonId) {
+          throw new Error('Не удалось определить урок для записи')
+        }
+
+        // Получаем student_id из текущего пользователя
+        const studentId = this.userStore.userData?.id
+        if (!studentId) {
+          throw new Error('Пользователь не авторизован')
+        }
+
+        // Вызываем API для записи на занятие
+        await lessonsApi.enroll({
+          lesson_id: lessonId,
+          student_id: studentId
+        })
+
         this.bookingDialog = false
         if (this.selectedSlot) {
           const slot = this.availableSlots.find((s) => s.time === this.selectedSlot!.time)
           if (slot) {
-            slot.available = true
-            slot.booked = false
+            slot.lesson.booked = true
+            slot.lesson.booked_by = {
+              type: 'student',
+              id: this.userStore.userData?.id || 0,
+              name: this.userStore.userData?.full_name || 'Неизвестный'
+            }
           }
         }
+
         this.selectedSlot = null
-        this.$toast.add({ severity: 'success', summary: 'Готово', detail: 'Запись подтверждена', life: 3000 })
-      } catch (error) {
-        this.$toast.add({ severity: 'error', summary: 'Ошибка', detail: 'Не удалось записаться на занятие', life: 5000 })
+        this.$toast.add({
+          severity: 'success',
+          summary: 'Готово',
+          detail: 'Вы успешно записаны на занятие',
+          life: 3000
+        })
+
+        await this.loadCalendarData()
+
+      } catch (error: any) {
+        console.error('Ошибка записи на занятие:', error)
+        let errorMessage = 'Не удалось записаться на занятие'
+
+        if (error.response?.data?.detail) {
+          errorMessage = error.response.data.detail
+        } else if (error.message) {
+          errorMessage = error.message
+        }
+
+        this.$toast.add({
+          severity: 'error',
+          summary: 'Ошибка',
+          detail: errorMessage,
+          life: 5000
+        })
+      } finally {
+        this.bookingLoading = false
+        this.ui.hideLoading()
+      }
+    },
+    async cancelBooking() {
+      if (!this.selectedSlot || !this.selectedSlot.raw.lesson_id) {
+        this.$toast.add({
+          severity: 'error',
+          summary: 'Ошибка',
+          detail: 'Не удалось определить занятие для отмены',
+          life: 4000
+        })
+        return
+      }
+
+      const lessonId = this.selectedSlot.raw.lesson_id
+      const bookedBy = this.selectedSlot.lesson?.booked_by
+
+      if (!bookedBy) {
+        this.$toast.add({
+          severity: 'error',
+          summary: 'Ошибка',
+          detail: 'Нет информации о пользователе, записанном на урок',
+          life: 4000
+        })
+        return
+      }
+
+      this.bookingLoading = true
+      this.ui.showLoading('Отмена записи...')
+
+      try {
+        if (bookedBy.type === 'student') {
+          await lessonsApi.removeStudent(lessonId, bookedBy.id)
+        } else if (bookedBy.type === 'group') {
+          await lessonsApi.removeGroup(lessonId, bookedBy.id)
+        } else {
+          throw new Error('Неизвестный тип участника')
+        }
+
+        this.$toast.add({
+          severity: 'success',
+          summary: 'Запись отменена',
+          detail: `${bookedBy.type === 'student' ? 'Студент' : 'Группа'} успешно удален(а) из занятия`,
+          life: 3000
+        })
+
+        if (this.selectedSlot) {
+          this.selectedSlot.lesson.booked = false
+          this.selectedSlot.lesson.booked_by = null
+        }
+
+        this.bookingDialog = false
+        this.selectedSlot = null
+
+        await this.loadCalendarData()
+        this.selectDate({ date: this.selectedDate })
+      } catch (error: any) {
+        console.error('Ошибка при отмене записи:', error)
+        this.$toast.add({
+          severity: 'error',
+          summary: 'Ошибка',
+          detail: error?.response?.data?.detail || error.message || 'Не удалось отменить запись',
+          life: 5000
+        })
       } finally {
         this.bookingLoading = false
         this.ui.hideLoading()
@@ -607,20 +741,53 @@ export default defineComponent({
         this.$toast.add({ severity: 'success', summary: 'Успех', detail: 'Урок создан' })
         this.createLessonDialog = false
 
-        const startTime = this.formatTime(this.newSession.start_time)
-        const endTime = this.formatTime(this.newSession.end_time)
-        const newSlotTime = `${startTime}-${endTime}`
-
-        this.availableSlots.push({
-          time: newSlotTime,
-          available: true,
-          booked: false,
-          unavailable: false
-        })
-
         await this.loadCalendarData()
+        this.selectDate({ date: this.selectedDate })
       } catch (e: any) {
         this.$toast.add({ severity: 'error', summary: 'Ошибка', detail: e.message || 'Не удалось создать урок' })
+      }
+    },
+    async deleteLesson() {
+      if (!this.selectedSlot || !this.selectedSlot.raw.lesson_id) {
+        this.$toast.add({
+          severity: 'error',
+          summary: 'Ошибка',
+          detail: 'Не удалось определить урок для удаления',
+          life: 4000
+        })
+        return
+      }
+
+      const lessonId = this.selectedSlot.raw.lesson_id
+
+      try {
+        this.ui.showLoading('Удаление урока...')
+        await lessonsApi.deleteFullLesson(lessonId)
+
+        this.$toast.add({
+          severity: 'success',
+          summary: 'Урок удалён',
+          detail: 'Урок и связанные сессии успешно удалены',
+          life: 3000
+        })
+
+        // закрываем диалог и обновляем календарь
+        this.bookingDialog = false
+        this.selectedSlot = null
+
+        await this.loadCalendarData()
+        this.selectDate({ date: this.selectedDate })
+
+      } catch (error: any) {
+        console.error('Ошибка при удалении урока:', error)
+        this.$toast.add({
+          severity: 'error',
+          summary: 'Ошибка',
+          detail: error?.response?.data?.detail || error.message || 'Не удалось удалить урок',
+          life: 5000
+        })
+      } finally {
+        this.ui.hideLoading()
       }
     },
     formatTime(date: Date) {
@@ -629,7 +796,20 @@ export default defineComponent({
       return `${hours}:${minutes}`
     }
   },
+  async loadLanguages() {
+    try {
+      const languages = await languagesApi.getLanguages(true) // только активные
+      this.languageOptions = languages.map(lang => ({
+        label: lang.name,
+        value: lang.code
+      }))
+    } catch (error) {
+      console.error('Failed to load languages:', error)
+      this.languageOptions = []
+    }
+  },
   async mounted() {
+    await this.loadLanguages()
     if (!this.isTeacher) {
       await this.loadTeachers()
     }

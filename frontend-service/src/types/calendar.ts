@@ -1,3 +1,6 @@
+import type { LessonShort, LessonSessionResponse } from "@/types/lessons";
+import type { Teacher } from "@/types/teacher";
+
 // Схемы для TeacherDaySchedule
 export interface TeacherDayScheduleBase {
   teacher_telegram_id: number
@@ -50,9 +53,9 @@ export interface TeacherScheduleResponse extends TeacherScheduleBase {
 export interface CalendarDayResponse {
   date: string
   is_active: boolean
-  start_time?: string
-  end_time?: string
-  booked_slots: string[]
+  start_time: string
+  end_time: string
+  lessons: LessonSessionResponse[]
 }
 
 export interface CalendarResponse {
@@ -63,9 +66,9 @@ export interface CalendarResponse {
 // Схемы для временных слотов
 export interface TimeSlotResponse {
   time: string
-  available: boolean
-  booked: boolean
-  unavailable: boolean
+  status: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED"
+  teacher: Teacher
+  lesson?: LessonShort
 }
 
 // ===== Teacher Special Day =====
@@ -89,11 +92,4 @@ export interface TeacherUnavailableResponse {
   start_time: string
   end_time: string
   reason?: string | null
-}
-
-// ===== Full Teacher Schedule =====
-export interface TeacherScheduleFullResponse {
-  weekly_schedules: TeacherScheduleResponse[]
-  special_days: TeacherSpecialDayResponse[]
-  unavailable_periods: TeacherUnavailableResponse[]
 }

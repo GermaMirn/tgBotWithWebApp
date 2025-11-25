@@ -226,6 +226,7 @@
                 label="Настройки уведомлений"
                 icon="pi pi-bell"
                 class="action-button"
+                @click="openNotificationSettings"
                 outlined
               />
               <Button
@@ -244,6 +245,13 @@
           </div>
         </div>
       </div>
+
+      <NotificationSettingsDialog
+        v-model:visible="notificationSettingsDialog"
+        :settings="notificationSettings"
+        :loading="savingNotifications"
+        @save="saveNotificationSettings"
+      />
     </div>
   </div>
 </template>
@@ -261,6 +269,9 @@ import type { UserProfile, StudentProfile, TeacherProfile } from '@/types/user.t
 import EditProfileDialog from '@/components/dialogs/EditProfileDialog.vue'
 import EditStudentDialog from '@/components/dialogs/EditStudentDialog.vue'
 import EditTeacherDialog from '@/components/dialogs/EditTeacherDialog.vue'
+import NotificationSettingsDialog from '@/components/dialogs/NotificationSettingsDialog.vue'
+import { NotificationSettings } from '@/types/notification'
+import { notificationsApi } from '@/services/api/notification'
 
 export default defineComponent({
   name: 'ProfilePage',
@@ -269,7 +280,8 @@ export default defineComponent({
     Button,
     EditProfileDialog,
     EditStudentDialog,
-    EditTeacherDialog
+    EditTeacherDialog,
+    NotificationSettingsDialog
   },
   data() {
     return {
@@ -302,7 +314,10 @@ export default defineComponent({
         hourly_rate: 0
       },
       phoneFocused: false,
-      emailFocused: false
+      emailFocused: false,
+      notificationSettingsDialog: false,
+      notificationSettings: null as NotificationSettings | null,
+      savingNotifications: false,
     }
   },
   computed: {
@@ -583,6 +598,47 @@ export default defineComponent({
         })
       } finally {
         this.saving = false
+      }
+    },
+    async openNotificationSettings() {
+      if (!this.userData?.id) return
+
+      try {
+        // Загружаем настройки уведомлений
+        this.notificationSettings = await notificationsApi.getSettings(this.userData.id)
+        this.notificationSettingsDialog = true
+      } catch (error) {
+        this.$toast.add({
+          severity: 'error',
+          summary: 'Ошибка',
+          detail: 'Не удалось загрузить настройки уведомлений',
+          life: 5000
+        })
+      }
+    },
+
+    async saveNotificationSettings(settings: NotificationSettings) {
+      if (!this.userData?.id) return
+
+      this.savingNotifications = true
+      try {
+        await notificationsApi.updateSettings(this.userData.id, settings)
+        this.notificationSettingsDialog = false
+        this.$toast.add({
+          severity: 'success',
+          summary: 'Успешно',
+          detail: 'Настройки уведомлений сохранены',
+          life: 3000
+        })
+      } catch (error) {
+        this.$toast.add({
+          severity: 'error',
+          summary: 'Ошибка',
+          detail: 'Не удалось сохранить настройки уведомлений',
+          life: 5000
+        })
+      } finally {
+        this.savingNotifications = false
       }
     }
   },

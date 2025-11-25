@@ -1,7 +1,12 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import date, datetime, time
-from enum import Enum
+from datetime import date, datetime
+
+class BookedByShort(BaseModel):
+    type: str
+    id: str
+    name:  Optional[str] = None
+
 
 # Схемы для TeacherSchedule (недельное расписание)
 class TeacherScheduleBase(BaseModel):
@@ -33,12 +38,25 @@ class CalendarRequest(BaseModel):
     start_date: date
     end_date: date
 
+class LessonShortInCalendar(BaseModel):
+    id: int
+    lesson_id: int
+    start_time: datetime
+    end_time: datetime
+    status: str
+    booked: bool
+    lesson: Optional[dict] = None
+    booked_by: Optional[BookedByShort] = None
+
+    class Config:
+        orm_mode = True
+
 class CalendarDayResponse(BaseModel):
     date: date
     is_active: bool
     start_time: Optional[str] = None
     end_time: Optional[str] = None
-    booked_slots: List[str] = []
+    lessons: List[LessonShortInCalendar] = Field(default_factory=list)
 
 class CalendarResponse(BaseModel):
     teacher_telegram_id: int

@@ -7,6 +7,12 @@ export interface TeacherWeekScheduleItem {
   end_time: string | null   // "18:00"
 }
 
+export interface BookedByShort {
+  type: string
+  id: string
+  name:  string | null
+}
+
 export interface TeacherDaySchedule {
   teacher_telegram_id: number
   date: string            // "YYYY-MM-DD"
@@ -42,22 +48,73 @@ export interface Lesson {
 export interface LessonSession {
   id: number
   lesson_id: number
-  start_time: string      // ISO
-  end_time: string        // ISO
-  status: LessonStatus
-  // Расширим для фронта:
-  is_booked?: boolean
-  booked_by_me?: boolean
+  start_time: string
+  end_time: string
+  status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
+  lesson?: {
+    id: number
+    title: string
+    description?: string
+    lesson_type: 'INDIVIDUAL' | 'GROUP' | 'TRIAL'
+    language: string
+    level: string
+    teacher_telegram_id: number
+  }
 }
 
 export interface CreateSessionPayload {
   lesson_id: number
-  start_time: string      // ISO
-  end_time: string        // ISO
+  start_time: string
+  end_time: string
+  status?: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
 }
 
 export interface CreateDaySchedulePayload {
   is_active: boolean
   start_time: string | null
   end_time: string | null
+}
+
+export interface LessonShort {
+  id: number
+  title: string
+  description?: string
+  lesson_type: "INDIVIDUAL" | "GROUP" | "TRIAL"
+  language: string
+  booked: boolean
+  booked_by: BookedByShort
+  level: string
+  teacher_telegram_id: number
+}
+
+export interface LessonSessionResponse {
+  id: number
+  lesson_id: number
+  start_time: string
+  end_time: string
+  status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'
+  booked: boolean
+  booked_by: BookedByShort
+  lesson?: LessonShort
+}
+
+export interface EnrollmentCreate {
+  lesson_id: number
+  student_id?: string
+  group_id?: number
+}
+
+export interface LessonParticipant {
+  id: number
+  lesson_id: number
+  student_id?: string
+  group_id?: number
+  is_confirmed: boolean
+  confirmation_date?: string
+}
+
+export interface FreeSlotsResponse {
+  teacher_telegram_id: number
+  date: string
+  slots: string[]
 }

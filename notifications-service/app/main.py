@@ -1,18 +1,24 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import AsyncSessionLocal
-from app import models
 from app.config import settings
+from app.api.notifications import router
+from app.core.rabbitmq import rabbitmq_client
+import asyncio
 
-async def get_db():
-  async with AsyncSessionLocal() as session:
-    yield session
-
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Запускаем подключение к RabbitMQ в фоне, не блокируя запуск приложения
+    asyncio.create_task(rabbitmq_client.connect())
+    yield
+    await rabbitmq_client.close()
 
 app = FastAPI(
     title="Notifications Service",
     description="Сервис для управления уведомлениями",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # CORS middleware
@@ -30,10 +36,11 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "notifications-service"}
+    rabbitmq_status = "connected" if rabbitmq_client.is_connected else "disconnected"
+    return {
+        "status": "healthy",
+        "service": "notifications-service",
+        "rabbitmq": rabbitmq_status
+    }
 
-# Здесь будут импортироваться роутеры
-# from app.api import notifications, settings, logs
-# app.include_router(notifications.router, prefix="/api/v1")
-# app.include_router(settings.router, prefix="/api/v1")
-# app.include_router(logs.router, prefix="/api/v1")
+app.include_router(router)

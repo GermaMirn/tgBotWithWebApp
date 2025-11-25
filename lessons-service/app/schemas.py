@@ -1,7 +1,8 @@
 from datetime import date, datetime
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator, field_validator
 from enum import Enum
+from uuid import UUID
 
 class LessonStatus(str, Enum):
   scheduled = "SCHEDULED"
@@ -52,11 +53,31 @@ class LessonSessionUpdate(BaseModel):
   end_time: Optional[datetime] = None
   status: Optional[LessonStatus] = None
 
+class BookedBy(BaseModel):
+  type: str
+  id: str
+
+class LessonShort(BaseModel):
+  id: int
+  title: str
+  description: Optional[str] = None
+  lesson_type: str
+  language: str
+  level: str
+  teacher_telegram_id: int
+
+  class Config:
+    orm_mode = True
+
 class LessonSessionResponse(LessonSessionBase):
   id: int
   status: LessonStatus
+  booked: bool
+  booked_by: Optional[BookedBy] = None
+  lesson: Optional[LessonShort] = None
+
   class Config:
-      orm_mode = True
+    orm_mode = True
 
 # ---- LessonParticipant ----
 class LessonParticipantBase(BaseModel):
@@ -71,11 +92,29 @@ class LessonParticipantCreate(LessonParticipantBase):
 class LessonParticipantUpdate(BaseModel):
   is_confirmed: Optional[bool] = None
 
-class LessonParticipantResponse(LessonParticipantBase):
+class LessonParticipantResponse(BaseModel):
   id: int
+  lesson_id: int
+  student_id: Optional[str] = None
+  group_id: Optional[int] = None
+  is_confirmed: bool
   confirmation_date: Optional[datetime] = None
-  class Config:
-      orm_mode = True
+
+  model_config = {
+      "from_attributes": True
+  }
+
+  @classmethod
+  def from_orm(cls, obj):
+    data = {
+      "id": obj.id,
+      "lesson_id": obj.lesson_id,
+      "student_id": str(obj.student_id) if obj.student_id else None,
+      "group_id": obj.group_id,
+      "is_confirmed": obj.is_confirmed,
+      "confirmation_date": obj.confirmation_date
+    }
+    return cls(**data)
 
 # ---- LessonAttendance ----
 class LessonAttendanceBase(BaseModel):
@@ -108,3 +147,25 @@ class TeacherSessionsRequest(BaseModel):
   teacher_telegram_id: int
   start: date
   end: date
+
+class EnrollmentCreate(BaseModel):
+  lesson_id: int
+  student_id: Optional[UUID] = None
+  group_id: Optional[int] = None
+
+  class Config:
+    json_schema_extra = {
+      "example": {
+        "lesson_id": 1,
+        "student_id": "123e4567-e89b-12d3-a456-426614174000",
+        "group_id": None
+      }
+    }
+
+  @model_validator(mode='after')
+  def validate_student_or_group(self):
+    if self.student_id is None and self.group_id is None:
+      raise ValueError('Either student_id or group_id must be provided')
+    if self.student_id is not None and self.group_id is not None:
+      raise ValueError('Provide either student_id OR group_id, not both')
+    return self

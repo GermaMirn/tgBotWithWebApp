@@ -11,7 +11,6 @@ import type {
   TeacherSpecialDayCreate,
   TeacherSpecialDayResponse,
   TeacherUnavailableResponse,
-  TeacherScheduleFullResponse,
   TeacherSpecialDayUpdate
 } from '@/types/calendar'
 
@@ -97,7 +96,7 @@ export const calendarApi = {
     teacherTelegramId: number,
     start: string,
     end: string
-  ): Promise<TeacherScheduleFullResponse> {
+  ): Promise<CalendarResponse> {
     const response = await api.post(`calendary/teacher-schedule/${teacherTelegramId}/full`, {start, end})
     return response.data
   },

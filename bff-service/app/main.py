@@ -1,13 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import auth, students, teachers, admin, calendar, groups, lessons
+from app.api import auth, students, teachers, admin, calendar, groups, lessons, notification, languages
 
 app = FastAPI(
   title="BFF Server",
   root_path="/api",
   servers=[{"url": "/api", "description": "API Server"}],
-  openapi_url="/api/openapi.json",
-  docs_url="/api/docs"
+  openapi_url="/openapi.json",
+  docs_url="/docs"
 )
 
 app.add_middleware(
@@ -25,6 +25,8 @@ app.include_router(admin.router, prefix="/role", tags=["admin"])
 app.include_router(calendar.router, prefix="/calendary", tags=["calendar"])
 app.include_router(groups.router, prefix="/groups", tags=["groups"])
 app.include_router(lessons.router, prefix="/lessons", tags=["lessons"])
+app.include_router(notification.router, prefix="/notification", tags=["notification"])
+app.include_router(languages.router, prefix="/languages", tags=["languages"])
 
 @app.get("/")
 async def root():

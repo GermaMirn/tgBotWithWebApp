@@ -3,6 +3,7 @@ from typing import List, Optional
 from datetime import datetime, date
 from fastapi.encoders import jsonable_encoder
 import httpx
+from uuid import UUID
 
 from ..schemas import lessons
 from ..core.auth import get_current_user_telegram_id
@@ -200,15 +201,170 @@ async def create_full_lesson_bff(payload: lessons.CreateFullLessonPayload, autho
 
   async with httpx.AsyncClient() as client:
     # 1. Создаем Lesson
-    lesson_data = jsonable_encoder(payload.lesson)  # <-- корректная сериализация
+    lesson_data = jsonable_encoder(payload.lesson)
     lesson_resp = await client.post(f"{LESSONS_SERVICE_URL}/lessons", json=lesson_data)
     lesson_resp.raise_for_status()
     lesson = lesson_resp.json()
 
     # 2. Создаем Session
-    session_data = jsonable_encoder(payload.session)  # <-- правильно сериализуем datetime и enum
+    session_data = jsonable_encoder(payload.session)
     session_data["lesson_id"] = lesson["id"]
     print(session_data)
     session_resp = await client.post(f"{LESSONS_SERVICE_URL}/lessons/sessions", json=session_data)
     session_resp.raise_for_status()
     return session_resp.json()
+
+@router.delete("/delete-full-lesson/{lesson_id}", status_code=204)
+async def delete_full_lesson_bff(
+  lesson_id: int,
+  authorization: str = Header(None)
+):
+  teacher_id = await get_current_user_telegram_id(authorization)
+  if not teacher_id:
+    raise HTTPException(401, "Unauthorized")
+
+  async with httpx.AsyncClient() as client:
+    lesson_resp = await client.get(f"{LESSONS_SERVICE_URL}/lessons/{lesson_id}")
+    if lesson_resp.status_code == 404:
+      raise HTTPException(404, "Lesson not found")
+
+    lesson = lesson_resp.json()
+
+    if lesson["teacher_telegram_id"] != teacher_id:
+      raise HTTPException(403, "You can delete only your own lessons")
+
+    sessions_resp = await client.post(
+      f"{LESSONS_SERVICE_URL}/lessons/sessions/by-teacher",
+      json={
+        "teacher_telegram_id": teacher_id,
+        "start": "1970-01-01T00:00:00Z",
+        "end": "2100-01-01T00:00:00Z"
+      }
+    )
+    sessions_resp.raise_for_status()
+    sessions = sessions_resp.json()
+
+    for s in sessions:
+      if s["lesson_id"] == lesson_id:
+        await client.delete(f"{LESSONS_SERVICE_URL}/lessons/sessions/{s['id']}")
+
+    del_resp = await client.delete(f"{LESSONS_SERVICE_URL}/lessons/{lesson_id}")
+    del_resp.raise_for_status()
+
+  return None
+
+# ---------------- ENROLLMENT / ЗАПИСЬ НА ЗАНЯТИЯ ----------------
+@router.post("/enroll", response_model=lessons.LessonParticipantResponse)
+async def enroll_to_lesson_bff(
+  payload: lessons.EnrollmentCreate,
+  authorization: str = Header(None)
+):
+  """
+  Записать студента или группу на занятие
+  """
+  await get_current_user_telegram_id(authorization)
+  async with httpx.AsyncClient() as client:
+    try:
+      resp = await client.post(
+        f"{LESSONS_SERVICE_URL}/lessons/enroll",
+        json=jsonable_encoder(payload),
+        timeout=10
+      )
+      resp.raise_for_status()
+      return resp.json()
+    except httpx.HTTPStatusError as e:
+      if e.response.status_code == 400:
+        raise HTTPException(400, e.response.json().get("detail", "Bad request"))
+      raise HTTPException(e.response.status_code, e.response.text)
+
+@router.get("/{lesson_id}/participants", response_model=List[lessons.LessonParticipantResponse])
+async def get_lesson_participants_bff(
+  lesson_id: int,
+  authorization: str = Header(None)
+):
+  """
+  Получить список участников занятия
+  """
+  await get_current_user_telegram_id(authorization)
+  async with httpx.AsyncClient() as client:
+    try:
+      resp = await client.get(
+        f"{LESSONS_SERVICE_URL}/lessons/{lesson_id}/participants",
+        timeout=10
+      )
+      resp.raise_for_status()
+      return resp.json()
+    except httpx.HTTPStatusError as e:
+      if e.response.status_code == 404:
+        raise HTTPException(404, "No participants found for this lesson")
+      raise HTTPException(e.response.status_code, e.response.text)
+
+@router.delete("/{lesson_id}/participants/{student_id}", status_code=204)
+async def remove_student_from_lesson_bff(
+  lesson_id: int,
+  student_id: UUID,
+  authorization: str = Header(None)
+):
+  """
+  Отписать студента от занятия
+  """
+  await get_current_user_telegram_id(authorization)
+  async with httpx.AsyncClient() as client:
+    try:
+      resp = await client.delete(
+        f"{LESSONS_SERVICE_URL}/lessons/{lesson_id}/participants/{student_id}",
+        timeout=10
+      )
+      resp.raise_for_status()
+      return None
+    except httpx.HTTPStatusError as e:
+      if e.response.status_code == 404:
+        raise HTTPException(404, "Student not found in this lesson")
+      raise HTTPException(e.response.status_code, e.response.text)
+
+@router.delete("/{lesson_id}/participants/group/{group_id}", status_code=204)
+async def remove_group_from_lesson_bff(
+  lesson_id: int,
+  group_id: int,
+  authorization: str = Header(None)
+):
+  """
+  Отписать группу от занятия
+  """
+  await get_current_user_telegram_id(authorization)
+  async with httpx.AsyncClient() as client:
+    try:
+      resp = await client.delete(
+        f"{LESSONS_SERVICE_URL}/lessons/{lesson_id}/participants/group/{group_id}",
+        timeout=10
+      )
+      resp.raise_for_status()
+      return None
+    except httpx.HTTPStatusError as e:
+      if e.response.status_code == 404:
+        raise HTTPException(404, "Group not found in this lesson")
+      raise HTTPException(e.response.status_code, e.response.text)
+
+@router.post("/{lesson_id}/enroll-bulk", response_model=List[lessons.LessonParticipantResponse])
+async def bulk_enroll_students_to_lesson_bff(
+  lesson_id: int,
+  student_ids: List[UUID],
+  authorization: str = Header(None)
+):
+  """
+  Массовая запись студентов на занятие
+  """
+  await get_current_user_telegram_id(authorization)
+  async with httpx.AsyncClient() as client:
+    try:
+      resp = await client.post(
+        f"{LESSONS_SERVICE_URL}/lessons/{lesson_id}/enroll-bulk",
+        json=jsonable_encoder({"student_ids": student_ids}),
+        timeout=10
+      )
+      resp.raise_for_status()
+      return resp.json()
+    except httpx.HTTPStatusError as e:
+      if e.response.status_code == 400:
+        raise HTTPException(400, e.response.json().get("detail", "Bad request"))
+      raise HTTPException(e.response.status_code, e.response.text)

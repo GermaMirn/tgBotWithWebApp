@@ -1,3 +1,25 @@
+# Environment variables
 .env
-venv
+
+# Virtual environments
+venv/
+.env/
+
+# macOS system files
 .DS_Store
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local configuration
+local.settings.json

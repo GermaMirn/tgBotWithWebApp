@@ -1,27 +1,29 @@
 <template>
-  <div class="role-switch-container">
-    <div class="role-switch-card">
-      <div v-if="loading" class="loading">
+  <div class="role-switch-page">
+    <div class="main-content">
+      <div v-if="loading" class="loading-indicator">
         <LoadingSpinner />
         <p>Проверяем ссылку...</p>
       </div>
 
-      <div v-else-if="error" class="error">
+      <div v-else-if="error" class="detail-section">
         <h2>Ошибка</h2>
         <p>{{ error }}</p>
       </div>
 
-      <div v-else-if="!isValid" class="invalid-link">
+      <div v-else-if="!isValid" class="detail-section">
         <h2>Недействительная ссылка</h2>
         <p>Ссылка недействительна или истекла.</p>
       </div>
 
-            <div v-else-if="!formSubmitted" class="role-switch-form">
-        <h2>Стать учителем</h2>
-        <p class="description">
-          Заполните форму ниже, чтобы стать учителем. После успешного заполнения
-          ваша роль изменится со студента на учителя.
-        </p>
+      <div v-else-if="!formSubmitted" class="detail-section">
+        <div class="page-header">
+          <h1>Стать учителем</h1>
+          <p class="description">
+            Заполните форму ниже, чтобы стать учителем. После успешного заполнения
+            ваша роль изменится со студента на учителя.
+          </p>
+        </div>
 
         <div v-if="!isTelegramMiniApp" class="telegram-warning">
           <div class="warning-icon">⚠️</div>
@@ -30,7 +32,11 @@
           <p>Скопируйте ссылку и отправьте её в Telegram бот.</p>
           <div class="link-container">
             <input :value="currentUrl" readonly class="link-input" ref="urlInput" />
-            <button @click="copyUrl" class="btn-copy">{{ urlCopied ? 'Скопировано!' : 'Копировать' }}</button>
+            <Button
+              :label="urlCopied ? 'Скопировано!' : 'Копировать'"
+              @click="copyUrl"
+              outlined
+            />
           </div>
         </div>
 
@@ -57,7 +63,27 @@
 
           <div class="form-group">
             <label for="languages">Языки преподавания</label>
-            <input id="languages" v-model="form.languages" type="text" placeholder="Русский, Английский" class="form-input" />
+            <div class="languages-selector">
+              <MultiSelect
+                id="languages"
+                v-model="form.selectedLanguages"
+                :options="languageOptions"
+                optionLabel="label"
+                optionValue="code"
+                placeholder="Выберите языки"
+                :filter="true"
+                display="chip"
+                class="form-multiselect"
+              />
+              <button
+                type="button"
+                @click="showAddLanguageDialog = true"
+                class="btn-add-language"
+                title="Добавить новый язык"
+              >
+                <span style="font-size: 16px; margin-right: 4px;">+</span> Добавить язык
+              </button>
+            </div>
           </div>
 
           <div class="form-group">
@@ -66,18 +92,34 @@
           </div>
 
           <div class="form-actions">
-            <button type="submit" :disabled="submitting" class="btn-primary">{{ submitting ? 'Отправка...' : 'Стать учителем' }}</button>
+            <Button
+              type="submit"
+              :label="submitting ? 'Отправка...' : 'Стать учителем'"
+              :disabled="submitting"
+              :loading="submitting"
+            />
           </div>
         </form>
       </div>
 
-      <div v-else class="success">
-        <div class="success-icon">✅</div>
-        <h2>Поздравляем!</h2>
-        <p>Вы успешно стали учителем!</p>
-        <p class="success-details">Теперь вы можете создавать уроки и получать учеников.</p>
+      <div v-else class="detail-section">
+        <div class="message-content">
+          <div class="message-icon">✅</div>
+          <h2>Поздравляем!</h2>
+          <p>Вы успешно стали учителем!</p>
+          <p class="success-details">Теперь вы можете создавать уроки и получать учеников.</p>
+        </div>
       </div>
     </div>
+
+    <!-- Диалог добавления нового языка -->
+    <AddLanguageDialog
+      v-model:visible="showAddLanguageDialog"
+      :language="newLanguage"
+      :loading="addingLanguage"
+      @save="addNewLanguage"
+      @cancel="showAddLanguageDialog = false"
+    />
   </div>
 </template>
 
@@ -85,14 +127,19 @@
 import { defineComponent } from 'vue'
 import { useRoute } from 'vue-router'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import MultiSelect from 'primevue/multiselect'
+import Button from 'primevue/button'
+import AddLanguageDialog from '@/components/dialogs/AddLanguageDialog.vue'
 import { useUserStore } from '@/stores/user'
 import { roleSwitchApi } from '@/services/api/roleSwitch'
 import { teachersApi } from '@/services/api/teachers'
+import { languagesApi } from '@/services/api/languages'
 import { useUiStore } from '@/stores/ui'
+import type { StudioLanguage } from '@/types/languages'
 
 export default defineComponent({
   name: 'RoleSwitchPage',
-  components: { LoadingSpinner },
+  components: { LoadingSpinner, MultiSelect, Button, AddLanguageDialog },
   data() {
     return {
       ui: useUiStore(),
@@ -110,8 +157,17 @@ export default defineComponent({
         hourlyRate: 0,
   description: '',
   languages: '',
+  selectedLanguages: [] as string[],
   education: ''
-      }
+      },
+      languageOptions: [] as Array<{ label: string; value: string; code: string }>,
+      showAddLanguageDialog: false,
+      addingLanguage: false,
+      newLanguage: {
+        name: '',
+        code: ''
+      },
+      pendingLanguages: [] as Array<{ name: string; code: string }> // Языки, добавленные локально до авторизации
     }
   },
   computed: {
@@ -138,6 +194,8 @@ export default defineComponent({
     if (data.link && data.link.target_role !== 'teacher') {
         this.error = 'Эта ссылка не предназначена для переключения на роль учителя'
     }
+      // Загружаем языки из БД
+      await this.loadLanguages()
   } catch (err) {
     console.error('Error validating link:', err)
       this.error = 'Ошибка при проверке ссылки'
@@ -147,6 +205,126 @@ export default defineComponent({
     }
   },
   methods: {
+    async loadLanguages() {
+      try {
+        const languages = await languagesApi.getLanguages(true) // только активные
+        this.languageOptions = languages.map(lang => ({
+          label: lang.name,
+          value: lang.code,
+          code: lang.code
+        }))
+      } catch (error) {
+        console.error('Failed to load languages:', error)
+        this.languageOptions = []
+      }
+    },
+    async addNewLanguage(languageData: { name: string; code: string }) {
+      if (!languageData.name.trim() || !languageData.code.trim()) {
+        this.$toast.add({
+          severity: 'warn',
+          summary: 'Ошибка',
+          detail: 'Заполните все поля',
+          life: 3000
+        })
+        return
+      }
+
+      this.addingLanguage = true
+      try {
+        const code = languageData.code.toLowerCase().trim()
+        const name = languageData.name.trim()
+
+        // Проверяем, есть ли уже такой код
+        const existing = this.languageOptions.find(l => l.code === code)
+        if (existing) {
+          this.$toast.add({
+            severity: 'warn',
+            summary: 'Ошибка',
+            detail: 'Язык с таким кодом уже существует',
+            life: 3000
+          })
+          this.addingLanguage = false
+          return
+        }
+
+        // Пробуем создать язык через API, если пользователь авторизован
+        const token = localStorage.getItem('jwt_token')
+        if (token) {
+          try {
+            const createdLang = await languagesApi.createLanguage({
+              name: name,
+              code: code,
+              is_active: true
+            })
+
+            // Добавляем в список
+            const newLang = {
+              label: createdLang.name,
+              value: createdLang.code,
+              code: createdLang.code
+            }
+            this.languageOptions.push(newLang)
+            this.form.selectedLanguages.push(newLang.code)
+
+            this.$toast.add({
+              severity: 'success',
+              summary: 'Успешно',
+              detail: 'Язык добавлен в базу данных',
+              life: 3000
+            })
+          } catch (apiError: any) {
+            // Если не удалось создать через API, добавляем локально
+            console.warn('Не удалось создать язык через API:', apiError)
+            const newLang = {
+              label: name,
+              value: code,
+              code: code
+            }
+            this.languageOptions.push(newLang)
+            this.form.selectedLanguages.push(newLang.code)
+            // Сохраняем для попытки создания после авторизации
+            this.pendingLanguages.push({ name, code })
+
+            this.$toast.add({
+              severity: 'info',
+              summary: 'Язык добавлен',
+              detail: 'Язык добавлен в форму. Попытка создания в БД будет после авторизации.',
+              life: 4000
+            })
+          }
+        } else {
+          // Если пользователь не авторизован, добавляем локально
+          const newLang = {
+            label: name,
+            value: code,
+            code: code
+          }
+          this.languageOptions.push(newLang)
+          this.form.selectedLanguages.push(newLang.code)
+          // Сохраняем для попытки создания после авторизации
+          this.pendingLanguages.push({ name, code })
+
+          this.$toast.add({
+            severity: 'info',
+            summary: 'Язык добавлен',
+            detail: 'Язык добавлен в форму. Попытка создания в БД будет после переключения роли.',
+            life: 4000
+          })
+        }
+
+        this.showAddLanguageDialog = false
+        this.newLanguage = { name: '', code: '' }
+      } catch (error: any) {
+        this.$toast.add({
+          severity: 'error',
+          summary: 'Ошибка',
+          detail: error?.message || 'Не удалось добавить язык',
+          life: 5000
+        })
+      } finally {
+        this.addingLanguage = false
+      }
+    },
     async submitForm() {
       this.submitting = true
       this.ui.showLoading('Отправка формы...')
@@ -156,9 +334,54 @@ export default defineComponent({
       localStorage.setItem('jwt_token', roleData.access_token)
     }
         await this.userStore.fetchCurrentUser()
+
+        // Пытаемся создать языки, которые были добавлены локально до авторизации
+        if (this.pendingLanguages.length > 0) {
+          for (const lang of this.pendingLanguages) {
+            try {
+              const createdLang = await languagesApi.createLanguage({
+                name: lang.name,
+                code: lang.code,
+                is_active: true
+              })
+              // Обновляем в списке, если код совпадает
+              const existingIndex = this.languageOptions.findIndex(l => l.code === lang.code)
+              if (existingIndex !== -1) {
+                this.languageOptions[existingIndex] = {
+                  label: createdLang.name,
+                  value: createdLang.code,
+                  code: createdLang.code
+                }
+              }
+            } catch (error) {
+              console.warn(`Не удалось создать язык ${lang.name} в БД:`, error)
+              // Продолжаем, даже если не удалось создать
+            }
+          }
+          this.pendingLanguages = []
+        }
+
+        // Формируем строку языков из выбранных
+        const selectedLanguageNames = this.form.selectedLanguages
+          .map(code => {
+            const lang = this.languageOptions.find(l => l.code === code)
+            return lang ? lang.label : code
+          })
+
+        // Объединяем специализацию и языки
+        let specialization = this.form.specialization
+        if (selectedLanguageNames.length > 0) {
+          const languagesString = selectedLanguageNames.join(', ')
+          if (specialization) {
+            specialization = `${specialization} (Языки: ${languagesString})`
+          } else {
+            specialization = `Языки: ${languagesString}`
+          }
+        }
+
     await teachersApi.createTeacherWithoutAuth({
           telegram_id: this.userStore.userData?.telegram_id!,
-          specialization: this.form.specialization,
+          specialization: specialization,
           experience_years: Number(this.form.experience),
           hourly_rate: Number(this.form.hourlyRate),
           bio: this.form.description,
@@ -195,86 +418,178 @@ export default defineComponent({
 </script>
 
 <style scoped>
-.role-switch-container {
+.role-switch-page {
   min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--surface-ground);
 }
 
-.role-switch-card {
-  background: white;
-  border-radius: 16px;
-  padding: 40px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-  max-width: 600px;
-  width: 100%;
+.main-content {
+  padding: 1rem;
+  max-width: 800px;
+  margin: 0 auto;
 }
 
-.loading, .error, .invalid-link, .success {
+.page-header {
   text-align: center;
+  margin-bottom: 2rem;
+  padding: 2rem 0;
 }
 
-.loading p {
-  margin-top: 16px;
-  color: #666;
-}
-
-.error h2, .invalid-link h2, .success h2 {
-  color: #e74c3c;
-  margin-bottom: 16px;
-}
-
-.success h2 {
-  color: #27ae60;
-}
-
-.success-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.success-details {
-  color: #666;
-  margin-bottom: 24px;
+.page-header h1 {
+  margin: 0 0 1rem 0;
+  font-size: 2rem;
+  font-weight: 600;
+  color: var(--text-color);
 }
 
 .description {
-  color: #666;
-  margin-bottom: 32px;
+  color: var(--text-color-secondary);
+  margin-bottom: 0;
   line-height: 1.6;
+}
+
+.detail-section {
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  padding: 2rem;
+  margin-bottom: 1rem;
+}
+
+.detail-section h2 {
+  margin: 0 0 1rem 0;
+  color: var(--text-color);
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.detail-section p {
+  color: var(--text-color-secondary);
+  margin: 0.5rem 0;
+}
+
+.loading-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  text-align: center;
+}
+
+.loading-indicator p {
+  margin-top: 1rem;
+  color: var(--text-color-secondary);
+}
+
+.message-content {
+  text-align: center;
+  padding: 2rem;
+}
+
+.message-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.message-content h2 {
+  margin: 0 0 1rem 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-color);
+}
+
+.message-content p {
+  margin: 0.5rem 0;
+  color: var(--text-color-secondary);
+}
+
+.success-details {
+  color: var(--text-color-secondary);
+  margin-top: 1rem;
 }
 
 .form {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 1.5rem;
 }
 
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0.5rem;
 }
 
 .form-group label {
   font-weight: 600;
-  color: #333;
+  color: var(--text-color);
+  margin-bottom: 0.25rem;
 }
 
 .form-input, .form-textarea {
-  padding: 12px 16px;
-  border: 2px solid #e1e5e9;
-  border-radius: 8px;
-  font-size: 16px;
-  transition: border-color 0.3s ease;
+  padding: 0.75rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  font-size: 1rem;
+  font-family: inherit;
+  background: var(--surface-card);
+  color: var(--text-color);
+  transition: border-color 0.2s ease;
+  width: 100%;
 }
+
+.languages-selector {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.form-multiselect {
+  flex: 1;
+  width: 100%;
+}
+
+:deep(.p-multiselect) {
+  width: 100%;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+}
+
+:deep(.p-multiselect:not(.p-disabled):hover) {
+  border-color: var(--primary-color);
+}
+
+:deep(.p-multiselect:not(.p-disabled).p-focus) {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 0.2rem var(--primary-color-transparent);
+}
+
+.btn-add-language {
+  padding: 0.75rem 1rem;
+  background: var(--green-500);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-add-language:hover {
+  background: var(--green-600);
+}
+
 
 .form-input:focus, .form-textarea:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 0.2rem var(--primary-color-transparent);
 }
 
 .form-textarea {
@@ -284,113 +599,87 @@ export default defineComponent({
 
 .form-actions {
   display: flex;
-  gap: 16px;
+  gap: 1rem;
   justify-content: flex-end;
-  margin-top: 16px;
-}
-
-.btn-primary, .btn-secondary {
-  padding: 12px 24px;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-.btn-primary {
-  background: #667eea;
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: #5a6fd8;
-  transform: translateY(-2px);
-}
-
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.btn-secondary {
-  background: #f8f9fa;
-  color: #333;
-  border: 2px solid #e1e5e9;
-}
-
-.btn-secondary:hover {
-  background: #e9ecef;
+  margin-top: 1.5rem;
 }
 
 .telegram-warning {
-  background: #fff3cd;
-  border: 1px solid #ffeaa7;
-  border-radius: 12px;
-  padding: 24px;
-  margin-bottom: 24px;
+  background: var(--yellow-50);
+  border: 1px solid var(--yellow-200);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
   text-align: center;
 }
 
 .warning-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
+  font-size: 3rem;
+  margin-bottom: 1rem;
 }
 
 .telegram-warning h3 {
-  color: #856404;
-  margin-bottom: 12px;
+  color: var(--yellow-800);
+  margin: 0 0 0.75rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
 }
 
 .telegram-warning p {
-  color: #856404;
-  margin-bottom: 8px;
+  color: var(--yellow-800);
+  margin: 0.5rem 0;
 }
 
 .link-container {
   display: flex;
-  gap: 12px;
-  margin: 16px 0;
+  gap: 0.75rem;
+  margin: 1rem 0 0 0;
   justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .link-input {
   flex: 1;
+  min-width: 200px;
   max-width: 400px;
-  padding: 12px 16px;
-  border: 2px solid #e1e5e9;
-  border-radius: 8px;
+  padding: 0.75rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
   font-family: monospace;
-  font-size: 14px;
-  background: white;
-}
-
-.btn-copy {
-  background: #28a745;
-  color: white;
-  padding: 12px 24px;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  white-space: nowrap;
-}
-
-.btn-copy:hover {
-  background: #218838;
+  font-size: 0.875rem;
+  background: var(--surface-card);
+  color: var(--text-color);
 }
 
 @media (max-width: 768px) {
-  .role-switch-card {
-    padding: 24px;
-    margin: 16px;
+  .main-content {
+    padding: 0.5rem;
+  }
+
+  .detail-section {
+    padding: 1.5rem;
+  }
+
+  .page-header {
+    padding: 1rem 0;
+  }
+
+  .page-header h1 {
+    font-size: 1.75rem;
   }
 
   .form-actions {
     flex-direction: column;
+  }
+
+  .link-container {
+    flex-direction: column;
+  }
+
+  .link-input {
+    width: 100%;
+    max-width: 100%;
   }
 }
 </style>

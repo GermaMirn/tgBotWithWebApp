@@ -1,8 +1,10 @@
 # app/crud.py
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
-from datetime import datetime, date
+from sqlalchemy import select, and_, exists, or_
+from datetime import datetime, timezone, date as date_cls
 from typing import List, Optional
+from uuid import UUID
+from sqlalchemy.orm import aliased, selectinload
 
 from . import models, schemas
 
@@ -38,12 +40,11 @@ async def delete_lesson(db: AsyncSession, lesson: models.Lesson) -> None:
 
 
 # -------- SESSION --------
-async def create_session(db: AsyncSession, data: schemas.LessonSessionCreate) -> models.LessonSession:
+async def create_session(db: AsyncSession, data: schemas.LessonSessionCreate) -> schemas.LessonSessionResponse:
   lesson = await get_lesson(db, data.lesson_id)
   if not lesson:
     raise ValueError("Lesson not found")
-  print(data)
-  # Проверка пересечений
+
   stmt = select(models.LessonSession).join(models.Lesson).where(
     and_(
       models.Lesson.teacher_telegram_id == lesson.teacher_telegram_id,
@@ -64,26 +65,111 @@ async def create_session(db: AsyncSession, data: schemas.LessonSessionCreate) ->
   )
   db.add(obj)
   await db.commit()
-  await db.refresh(obj)
-  return obj
+
+  await db.refresh(obj, attribute_names=["lesson"])
+
+  return schemas.LessonSessionResponse(
+    id=obj.id,
+    lesson_id=obj.lesson_id,
+    start_time=obj.start_time,
+    end_time=obj.end_time,
+    status=obj.status,
+    booked=False,
+    booked_by=None,
+    lesson={
+        "id": obj.lesson.id,
+        "title": obj.lesson.title,
+        "description": obj.lesson.description,
+        "lesson_type": obj.lesson.lesson_type.value,
+        "language": obj.lesson.language,
+        "level": obj.lesson.level,
+        "teacher_telegram_id": obj.lesson.teacher_telegram_id
+    } if obj.lesson else None
+  )
 
 async def get_session(db: AsyncSession, session_id: int) -> Optional[models.LessonSession]:
   result = await db.execute(select(models.LessonSession).where(models.LessonSession.id == session_id))
   return result.scalar_one_or_none()
 
 async def list_sessions_by_teacher_and_range(
-  db: AsyncSession, teacher_telegram_id: int, start: date, end: date
-) -> List[models.LessonSession]:
-
-  stmt = select(models.LessonSession).join(models.Lesson).where(
-    and_(
-      models.Lesson.teacher_telegram_id == teacher_telegram_id,
-      func.date(models.LessonSession.created_at) >= start,
-      func.date(models.LessonSession.created_at) <= end
+    db: AsyncSession, teacher_telegram_id: int, start, end
+) -> List[dict]:
+    start_dt = (
+        datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)
+        if isinstance(start, date_cls) and not isinstance(start, datetime)
+        else start
     )
-  )
-  result = await db.execute(stmt)
-  return result.scalars().all()
+    end_dt = (
+        datetime.combine(end, datetime.max.time(), tzinfo=timezone.utc)
+        if isinstance(end, date_cls) and not isinstance(end, datetime)
+        else end
+    )
+
+    LP = aliased(models.LessonParticipant)
+
+    # Подзапрос: есть ли бронирование
+    booked_exists = (
+        select(1)
+        .where(
+            and_(
+                LP.lesson_id == models.LessonSession.lesson_id,
+                or_(LP.student_id.isnot(None), LP.group_id.isnot(None)),
+            )
+        )
+        .limit(1)
+        .correlate(models.LessonSession)
+    )
+
+    # Основной запрос
+    stmt = (
+        select(
+            models.LessonSession,
+            exists(booked_exists).label("booked"),
+            LP.student_id,
+            LP.group_id,
+        )
+        .join(models.Lesson, models.Lesson.id == models.LessonSession.lesson_id)
+        .outerjoin(LP, LP.lesson_id == models.LessonSession.lesson_id)
+        .options(selectinload(models.LessonSession.lesson))
+        .where(
+            models.LessonSession.start_time < end_dt,
+            models.LessonSession.end_time > start_dt,
+            models.Lesson.teacher_telegram_id == teacher_telegram_id,
+        )
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    sessions = []
+    for session, booked, student_id, group_id in rows:
+        booked_by = None
+        if booked:
+            if student_id is not None:
+                booked_by = {"type": "student", "id": str(student_id)}
+            elif group_id is not None:
+                booked_by = {"type": "group", "id": group_id}
+
+        sessions.append({
+            "id": session.id,
+            "lesson_id": session.lesson_id,
+            "start_time": session.start_time.isoformat(),
+            "end_time": session.end_time.isoformat(),
+            "status": session.status.value,
+            "booked": booked,
+            "booked_by": booked_by,
+            "lesson": {
+                "id": session.lesson.id,
+                "title": session.lesson.title,
+                "description": session.lesson.description,
+                "lesson_type": session.lesson.lesson_type.value,
+                "language": session.lesson.language,
+                "level": session.lesson.level,
+                "teacher_telegram_id": session.lesson.teacher_telegram_id,
+            } if session.lesson else None,
+        })
+
+    return sessions
 
 async def update_session(db: AsyncSession, session: models.LessonSession, data: schemas.LessonSessionUpdate) -> models.LessonSession:
   for k, v in data.dict(exclude_unset=True).items():
@@ -148,3 +234,97 @@ async def list_attendance(db: AsyncSession, lesson_id: int) -> List[models.Lesso
   stmt = select(models.LessonAttendance).where(models.LessonAttendance.lesson_id == lesson_id)
   result = await db.execute(stmt)
   return result.scalars().all()
+
+
+# -------- ENROLLMENT --------
+async def enroll_participant(db: AsyncSession, data: schemas.EnrollmentCreate) -> schemas.LessonParticipantResponse:
+    """
+    Записать студента или группу на занятие
+    """
+    # Проверяем, что урок существует
+    lesson = await get_lesson(db, data.lesson_id)
+    if not lesson:
+        raise ValueError("Lesson not found")
+
+    # Проверяем, что не дублируем запись
+    stmt = select(models.LessonParticipant).where(
+        models.LessonParticipant.lesson_id == data.lesson_id
+    )
+
+    if data.student_id:
+        stmt = stmt.where(models.LessonParticipant.student_id == data.student_id)
+    else:
+        stmt = stmt.where(models.LessonParticipant.group_id == data.group_id)
+
+    result = await db.execute(stmt)
+    existing = result.scalar_one_or_none()
+
+    if existing:
+        raise ValueError("Participant already enrolled in this lesson")
+
+    # Создаем запись
+    obj = models.LessonParticipant(
+        lesson_id=data.lesson_id,
+        student_id=data.student_id,
+        group_id=data.group_id,
+        is_confirmed=False,
+        confirmation_date=None
+    )
+
+    db.add(obj)
+    await db.commit()
+    await db.refresh(obj)
+
+    # Возвращаем через схему ответа с конвертацией UUID в строку
+    return schemas.LessonParticipantResponse(
+        id=obj.id,
+        lesson_id=obj.lesson_id,
+        student_id=str(obj.student_id) if obj.student_id else None,
+        group_id=obj.group_id,
+        is_confirmed=obj.is_confirmed,
+        confirmation_date=obj.confirmation_date
+    )
+
+async def get_lesson_participants(db: AsyncSession, lesson_id: int) -> List[models.LessonParticipant]:
+    """
+    Получить всех участников занятия
+    """
+    stmt = select(models.LessonParticipant).where(
+        models.LessonParticipant.lesson_id == lesson_id
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+async def get_participant_by_lesson_and_student(
+    db: AsyncSession,
+    lesson_id: int,
+    student_id: UUID
+) -> Optional[models.LessonParticipant]:
+    """
+    Найти запись студента на конкретное занятие
+    """
+    stmt = select(models.LessonParticipant).where(
+        and_(
+            models.LessonParticipant.lesson_id == lesson_id,
+            models.LessonParticipant.student_id == student_id
+        )
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+async def get_participant_by_lesson_and_group(
+    db: AsyncSession,
+    lesson_id: int,
+    group_id: int
+) -> Optional[models.LessonParticipant]:
+    """
+    Найти запись группы на конкретное занятие
+    """
+    stmt = select(models.LessonParticipant).where(
+        and_(
+            models.LessonParticipant.lesson_id == lesson_id,
+            models.LessonParticipant.group_id == group_id
+        )
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()

@@ -11,3 +11,4 @@ httpx==0.25.2
 pydantic-settings==2.1.0
 asyncpg==0.30.0
 greenlet==3.2.3
+aio-pika==9.3.0

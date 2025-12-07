@@ -13,6 +13,7 @@
         <div class="teacher-selector">
           <label for="teacher-select">Выберите преподавателя</label>
           <Dropdown
+            v-if="!teachersLoading && teachers.length > 0"
             id="teacher-select"
             v-model="selectedTeacher"
             :options="teachers"
@@ -21,11 +22,17 @@
             class="teacher-dropdown"
             @change="onTeacherChange"
           />
+          <div v-if="teachersLoading" class="loading-indicator">
+            <i class="pi pi-spin pi-spinner"></i> Загрузка преподавателей...
+          </div>
+          <div v-if="!teachersLoading && teachers.length === 0" class="empty-state">
+            Нет доступных преподавателей
+          </div>
         </div>
       </div>
 
       <!-- Календарь -->
-      <div v-if="!isTeacher ? selectedTeacher : true" class="calendar-container">
+      <div v-if="isTeacher || selectedTeacher" class="calendar-container">
         <!-- Навигация по месяцам -->
         <div class="calendar-navigation">
           <div class="month-selector">
@@ -182,6 +189,8 @@
       :slot="selectedSlot"
       :date="selectedDate"
       :loading="bookingLoading"
+      :lesson-types="lessonTypes"
+      :language-options="languageOptions"
       @confirm="confirmBooking"
       @cancel="cancelBooking"
       @delete="deleteLesson"
@@ -194,7 +203,10 @@
       :session="newSession"
       :lesson-types="lessonTypes"
       :language-options="languageOptions"
+      :day-settings="daySettings"
+      :selected-date="selectedDate"
       @save="createLesson"
+      @update:session="updateSession"
     />
   </div>
 </template>
@@ -206,6 +218,7 @@ import Dropdown from 'primevue/dropdown'
 import { useUserStore } from '@/stores/user'
 import { calendarApi } from '@/services/api/calendar'
 import { teachersApi } from '@/services/api/teachers'
+import { adminApi } from '@/services/api/admin'
 import { lessonsApi } from '@/services/api/lessons'
 import { languagesApi } from '@/services/api/languages'
 import type { CalendarResponse, TeacherSpecialDayUpdate, TimeSlotResponse } from '@/types/calendar'
@@ -231,12 +244,13 @@ export default defineComponent({
         isActive: false,
         startTime: '09:00',
         endTime: '18:00',
-        bookedSlots: [] as string[]
+        bookedSlots: [] as string[],
+        lessons: [] as any[]
       },
       loading: false,
       calendarData: null as CalendarResponse | null,
       teachers: [] as Teacher[],
-      teachersLoading: false,
+      teachersLoading: true, // Начинаем с true, чтобы показывать индикатор загрузки
       availableSlots: [] as TimeSlotResponse[],
       currentDate: new Date(),
       dayNames: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'] as string[],
@@ -368,36 +382,151 @@ export default defineComponent({
       this.teachersLoading = true
       this.ui.showLoading('Загрузка преподавателей...')
       try {
-        const teachersData = await teachersApi.getTeachers()
-        this.teachers = teachersData
-      } catch (error) {
-        console.error('Ошибка загрузки преподавателей:', error)
-        this.$toast.add({ severity: 'error', summary: 'Ошибка', detail: 'Ошибка загрузки списка преподавателей', life: 5000 })
+        console.log('[Calendar] Loading teachers from API...')
+        console.log('[Calendar] User role:', this.userStore.userRole)
+        console.log('[Calendar] Is admin:', this.isAdmin)
+
+        let teachersData: any
+
+        // Для админа используем endpoint /auth/users?role=teacher
+        // который возвращает всех пользователей с ролью teacher из auth-service
+        if (this.isAdmin) {
+          console.log('[Calendar] Loading teachers as admin via adminApi.getUsers("teacher")...')
+          const usersWithTeacherRole = await adminApi.getUsers('teacher')
+          console.log('[Calendar] Users with teacher role:', usersWithTeacherRole)
+
+          // Преобразуем пользователей в формат Teacher
+          teachersData = usersWithTeacherRole.map((user: any) => ({
+            id: user.id,
+            telegram_id: user.telegram_id,
+            full_name: user.full_name,
+            username: user.username,
+            // Дополнительные поля могут быть пустыми, так как они из auth-service
+            bio: null,
+            specialization: null,
+            experience_years: 0,
+            education: null,
+            certificates: [],
+            hourly_rate: null
+          }))
+        } else {
+          // Для обычных пользователей используем teachersApi
+          // который возвращает учителей из teachers-service
+          console.log('[Calendar] Loading teachers via teachersApi.getTeachers()...')
+          teachersData = await teachersApi.getTeachers()
+        }
+
+        console.log('[Calendar] Raw teachers response:', teachersData)
+        console.log('[Calendar] Response type:', typeof teachersData)
+        console.log('[Calendar] Is array:', Array.isArray(teachersData))
+
+        // Проверяем формат ответа
+        if (Array.isArray(teachersData)) {
+          this.teachers = teachersData
+          console.log('[Calendar] Teachers array length:', teachersData.length)
+          if (teachersData.length > 0) {
+            console.log('[Calendar] First teacher sample:', teachersData[0])
+          }
+        } else if (teachersData && typeof teachersData === 'object' && 'teachers' in teachersData && Array.isArray((teachersData as any).teachers)) {
+          this.teachers = (teachersData as any).teachers
+          console.log('[Calendar] Teachers from nested object, length:', (teachersData as any).teachers.length)
+        } else if (teachersData && typeof teachersData === 'object' && 'data' in teachersData && Array.isArray((teachersData as any).data)) {
+          this.teachers = (teachersData as any).data
+          console.log('[Calendar] Teachers from data field, length:', (teachersData as any).data.length)
+        } else {
+          console.warn('[Calendar] Unexpected teachers data format:', teachersData)
+          this.teachers = []
+        }
+
+        if (this.teachers.length === 0) {
+          console.warn('[Calendar] No teachers found')
+          if (this.isAdmin) {
+            console.warn('[Calendar] Admin: No users with teacher role found in auth-service')
+          } else {
+            console.warn('[Calendar] No teachers found in teachers-service database')
+          }
+          // Не показываем toast, так как это нормальная ситуация
+          // Просто скрываем select для выбора преподавателя
+        } else {
+          console.log('[Calendar] Successfully loaded', this.teachers.length, 'teachers')
+          console.log('[Calendar] Teachers list:', this.teachers.map(t => ({
+            id: t.id,
+            telegram_id: t.telegram_id,
+            full_name: t.full_name || 'No name'
+          })))
+        }
+      } catch (error: any) {
+        console.error('[Calendar] Ошибка загрузки преподавателей:', error)
+        console.error('[Calendar] Error details:', {
+          message: error?.message,
+          response: error?.response?.data,
+          status: error?.response?.status,
+          code: error?.code
+        })
+
+        const errorMessage = error?.response?.data?.detail ||
+                           error?.message ||
+                           'Ошибка загрузки списка преподавателей'
+
+        this.$toast.add({
+          severity: 'error',
+          summary: 'Ошибка',
+          detail: errorMessage,
+          life: 5000
+        })
+
+        // В dev режиме не очищаем массив, чтобы можно было тестировать
+        const isDevMode = import.meta.env.VITE_APP_MODE === 'dev'
+        if (!isDevMode) {
+          this.teachers = []
+        }
       } finally {
         this.teachersLoading = false
         this.ui.hideLoading()
       }
     },
     async loadCalendarData() {
-      if (!this.isTeacher && !this.selectedTeacher) return
+      if (!this.isTeacher && !this.selectedTeacher) {
+        console.log('[Calendar] Skipping loadCalendarData: isTeacher=', this.isTeacher, 'selectedTeacher=', this.selectedTeacher)
+        return
+      }
       this.loading = true
       this.ui.showLoading('Загрузка календаря...')
       try {
         let teacherTelegramId: number | undefined
         if (this.isTeacher) {
+          console.log('[Calendar] Loading calendar for teacher, userData:', this.userStore.userData)
           teacherTelegramId = this.userStore.userData?.telegram_id
+          console.log('[Calendar] Teacher telegram_id:', teacherTelegramId)
+          if (!teacherTelegramId) {
+            console.error('[Calendar] Teacher telegram_id is missing! userData:', this.userStore.userData)
+            this.$toast.add({
+              severity: 'error',
+              summary: 'Ошибка',
+              detail: 'Не удалось определить ID преподавателя. Пожалуйста, обновите страницу.',
+              life: 5000
+            })
+            return
+          }
         } else if (this.selectedTeacher) {
           teacherTelegramId = (this.selectedTeacher as any).telegram_id
+          console.log('[Calendar] Loading calendar for selected teacher, telegram_id:', teacherTelegramId)
         }
-        if (!teacherTelegramId) return
+        if (!teacherTelegramId) {
+          console.error('[Calendar] No teacher telegram_id available')
+          return
+        }
         const startDate = new Date(this.currentYear, this.currentMonth, 1)
         const endDate = new Date(this.currentYear, this.currentMonth + 2, 0)
+        console.log('[Calendar] Fetching calendar data for teacher:', teacherTelegramId, 'from', startDate.toISOString().split('T')[0], 'to', endDate.toISOString().split('T')[0])
         this.calendarData = await calendarApi.getTeacherFullSchedule(
           teacherTelegramId,
           startDate.toISOString().split('T')[0],
           endDate.toISOString().split('T')[0]
         )
+        console.log('[Calendar] Calendar data loaded:', this.calendarData)
       } catch (error: any) {
+        console.error('[Calendar] Error loading calendar:', error)
         this.$toast.add({ severity: 'error', summary: 'Ошибка', detail: `Ошибка загрузки календаря: ${error?.message || error}`, life: 5000 })
       } finally {
         this.loading = false
@@ -712,7 +841,11 @@ export default defineComponent({
       }
     },
     openCreateLessonDialog() {
-    this.createLessonDialog = true
+      this.createLessonDialog = true
+    },
+    updateSession(session: { start_time: Date | null, end_time: Date | null }) {
+      this.newSession.start_time = session.start_time
+      this.newSession.end_time = session.end_time
     },
     async createLesson() {
       if (!this.newLesson.title || !this.newSession.start_time || !this.newSession.end_time) return;
@@ -794,26 +927,45 @@ export default defineComponent({
       const hours = date.getHours().toString().padStart(2, '0')
       const minutes = date.getMinutes().toString().padStart(2, '0')
       return `${hours}:${minutes}`
-    }
-  },
-  async loadLanguages() {
-    try {
-      const languages = await languagesApi.getLanguages(true) // только активные
-      this.languageOptions = languages.map(lang => ({
-        label: lang.name,
-        value: lang.code
-      }))
-    } catch (error) {
-      console.error('Failed to load languages:', error)
-      this.languageOptions = []
+    },
+    async loadLanguages() {
+      try {
+        const languages = await languagesApi.getLanguages(true) // только активные
+        this.languageOptions = languages.map(lang => ({
+          label: lang.name,
+          value: lang.code
+        }))
+      } catch (error) {
+        console.error('Failed to load languages:', error)
+        this.languageOptions = []
+      }
     }
   },
   async mounted() {
     await this.loadLanguages()
+
+    // Ждем инициализации userStore, если еще не инициализирован
+    if (!this.userStore.isInitialized) {
+      await this.userStore.initialize()
+    }
+
+    // Ждем загрузки данных пользователя, если пользователь авторизован
+    if (this.userStore.hasToken && !this.userStore.userData) {
+      await this.userStore.fetchCurrentUser()
+    }
+
     if (!this.isTeacher) {
       await this.loadTeachers()
     }
-    if (this.isTeacher || this.selectedTeacher) {
+
+    // Для преподавателя загружаем календарь только если есть telegram_id
+    if (this.isTeacher) {
+      if (this.userStore.userData?.telegram_id) {
+        await this.loadCalendarData()
+      } else {
+        console.warn('[Calendar] Teacher userData or telegram_id is missing, cannot load calendar')
+      }
+    } else if (this.selectedTeacher) {
       await this.loadCalendarData()
     }
   }
@@ -875,6 +1027,30 @@ export default defineComponent({
 
 .teacher-dropdown {
   width: 100%;
+}
+
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  color: var(--text-color-secondary);
+  font-size: 0.875rem;
+}
+
+.loading-indicator i {
+  font-size: 1rem;
+}
+
+.empty-state {
+  margin-top: 0.5rem;
+  text-align: center;
+  color: var(--text-color-secondary);
+  font-size: 0.875rem;
+  padding: 0.5rem;
+  background: var(--surface-section);
+  border-radius: 8px;
 }
 
 .calendar-container {

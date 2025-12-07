@@ -84,4 +84,16 @@ export const groupsApi = {
     const response = await api.post(`/groups/invitations/${token}/accept`);
     return response.data;
   },
+
+  // Получить список приглашений для студента
+  async getStudentInvitations(studentTelegramId: number) {
+    const response = await api.get(`/groups/invitations/student/${studentTelegramId}`);
+    return response.data;
+  },
+
+  // Удалить приглашение
+  async deleteInvitation(invitationId: number) {
+    const response = await api.delete(`/groups/invitations/${invitationId}`);
+    return response.data;
+  },
 };

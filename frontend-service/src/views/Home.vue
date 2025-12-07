@@ -1,5 +1,5 @@
 <script lang="ts">
-import { defineComponent } from "vue";
+import { defineComponent, computed } from "vue";
 import { useUserStore } from "@/stores/user";
 import Button from 'primevue/button';
 import { useUiStore } from '@/stores/ui'
@@ -7,11 +7,21 @@ import { useUiStore } from '@/stores/ui'
 export default defineComponent({
   name: "HomePage",
   components: { Button },
-  data() {
+  setup() {
+    const userStore = useUserStore();
+    const ui = useUiStore();
+    const isDevMode = import.meta.env.VITE_APP_MODE === 'dev';
+
+    // В dev режиме показываем контент даже без аутентификации
+    const shouldShowContent = computed(() => {
+      return userStore.isAuthenticated || isDevMode;
+    });
+
     return {
-      userStore: useUserStore(),
-      ui: useUiStore()
-    }
+      userStore,
+      ui,
+      shouldShowContent
+    };
   },
   methods: {
     goToCalendar() {
@@ -31,7 +41,7 @@ export default defineComponent({
 <template>
   <div class="home-page">
     <!-- Основной контент -->
-    <div v-if="userStore.isAuthenticated" class="main-content">
+    <div v-if="shouldShowContent" class="main-content">
       <!-- Hero секция -->
       <section class="hero-section">
         <div class="hero-content">

@@ -20,7 +20,7 @@ async def get_teachers():
                 timeout=10
             )
             if response.status_code != 200:
-                error_text = await response.text()
+                error_text = response.text
                 raise HTTPException(status_code=response.status_code, detail=error_text)
 
             teachers = response.json()
@@ -95,6 +95,9 @@ async def create_teacher_without_auth(
     """
     Создание преподавателя без авторизации (для переключения ролей)
     """
+    print(f"[BFF] Creating teacher without auth for telegram_id: {teacher_data.telegram_id}")
+    print(f"[BFF] Teacher data: {teacher_data.dict()}")
+
     try:
         if not teacher_data.telegram_id:
             raise HTTPException(status_code=400, detail="telegram_id is required")
@@ -111,18 +114,32 @@ async def create_teacher_without_auth(
             }
             teacher_payload = {k: v for k, v in teacher_payload.items() if v is not None}
 
+            print(f"[BFF] Sending request to teachers-service: {TEACHERS_SERVICE_URL}/create-without-auth")
+            print(f"[BFF] Payload: {teacher_payload}")
+
             response = await client.post(
                 f"{TEACHERS_SERVICE_URL}/create-without-auth",
                 json=teacher_payload,
                 timeout=10
             )
 
-            if response.status_code != 201:
-                error_text = await response.text()
+            print(f"[BFF] Response status: {response.status_code}")
+
+            if response.status_code not in [200, 201]:
+                error_text = response.text
+                print(f"[BFF] Error response: {error_text}")
                 raise HTTPException(status_code=response.status_code, detail=error_text)
 
-            return response.json()
+            result = response.json()
+            print(f"[BFF] Teacher created successfully: {result}")
+            return result
+    except httpx.HTTPStatusError as e:
+        print(f"[BFF] HTTP error: {e.response.status_code} - {e.response.text}")
+        raise HTTPException(status_code=e.response.status_code, detail=f"teachers-service error: {e.response.text}")
     except Exception as e:
+        print(f"[BFF] Exception: {str(e)}")
+        import traceback
+        print(f"[BFF] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=502, detail=f"teachers-service error: {str(e)}")
 
 @router.get("/me", response_model=TeacherResponse)
@@ -142,7 +159,7 @@ async def get_current_teacher(
             )
 
             if response.status_code != 200:
-                error_text = await response.text()
+                error_text = response.text
                 raise HTTPException(status_code=response.status_code, detail=error_text)
 
             return response.json()
@@ -156,12 +173,17 @@ async def update_current_teacher(
 ):
     """
     Обновление данных текущего преподавателя
+    Если учителя нет, создаем его автоматически
     """
-    print(teacher_data)
     try:
+        telegram_id = current_user.get('telegram_id')
+        if not telegram_id:
+            raise HTTPException(status_code=400, detail="telegram_id not found in user data")
+
         async with httpx.AsyncClient() as client:
-            response = await client.put(
-                f"{TEACHERS_SERVICE_URL}/by-telegram/{current_user.get('telegram_id')}",
+            # Сначала пытаемся обновить
+            update_response = await client.put(
+                f"{TEACHERS_SERVICE_URL}/by-telegram/{telegram_id}",
                 json={
                     "bio": teacher_data.bio,
                     "specialization": teacher_data.specialization,
@@ -172,7 +194,49 @@ async def update_current_teacher(
                 },
                 timeout=10
             )
-            response.raise_for_status()
-            return response.json()
+
+            # Если учитель не найден (404), создаем его
+            if update_response.status_code == 404:
+                create_response = await client.post(
+                    f"{TEACHERS_SERVICE_URL}/create-without-auth",
+                    json={
+                        "telegram_id": telegram_id,
+                        "bio": teacher_data.bio,
+                        "specialization": teacher_data.specialization,
+                        "experience_years": teacher_data.experience_years or 0,
+                        "education": teacher_data.education,
+                        "certificates": teacher_data.certificates or [],
+                        "hourly_rate": teacher_data.hourly_rate
+                    },
+                    timeout=10
+                )
+                create_response.raise_for_status()
+                return create_response.json()
+
+            update_response.raise_for_status()
+            return update_response.json()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 400:
+            # Если учитель уже существует, пытаемся обновить еще раз
+            # (может быть race condition)
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.put(
+                        f"{TEACHERS_SERVICE_URL}/by-telegram/{telegram_id}",
+                        json={
+                            "bio": teacher_data.bio,
+                            "specialization": teacher_data.specialization,
+                            "experience_years": teacher_data.experience_years,
+                            "education": teacher_data.education,
+                            "certificates": teacher_data.certificates,
+                            "hourly_rate": teacher_data.hourly_rate
+                        },
+                        timeout=10
+                    )
+                    response.raise_for_status()
+                    return response.json()
+            except Exception as retry_error:
+                raise HTTPException(status_code=502, detail=f"teachers-service error: {str(retry_error)}")
+        raise HTTPException(status_code=e.response.status_code, detail=f"teachers-service error: {e.response.text}")
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"teachers-service error: {str(e)}")

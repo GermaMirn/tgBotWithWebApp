@@ -78,6 +78,56 @@
           <Button icon="pi pi-copy" @click="copyInviteLink" />
         </InputGroup>
       </div>
+
+      <!-- Активные ссылки для выбранного студента -->
+      <div v-if="selectedStudent && studentInvitations.length > 0" class="field">
+        <div class="invitations-list">
+          <h4>Активные приглашения для {{ selectedStudent.full_name }}:</h4>
+          <div v-for="inv in studentInvitations" :key="inv.id" class="invitation-item">
+            <div class="invitation-info">
+              <div class="invitation-header">
+                <span class="invitation-group">{{ inv.group_name }}</span>
+                <Tag
+                  :value="inv.is_active ? 'Активно' : getStatusLabel(inv.status)"
+                  :severity="inv.is_active ? 'success' : 'secondary'"
+                />
+              </div>
+              <div class="invitation-link">
+                <InputText :value="inv.invite_url" readonly class="link-input" />
+              </div>
+              <div v-if="inv.message" class="invitation-message">
+                <small><strong>Сообщение:</strong> {{ inv.message }}</small>
+              </div>
+              <div class="invitation-dates">
+                <small v-if="inv.expires_at">
+                  Действительно до: {{ formatDate(inv.expires_at) }}
+                </small>
+              </div>
+              <div class="invitation-actions">
+                <Button
+                  label="Копировать"
+                  icon="pi pi-copy"
+                  size="small"
+                  outlined
+                  class="action-button"
+                  @click="copyLink(inv.invite_url)"
+                />
+                <br />
+                <Button
+                  label="Удалить"
+                  icon="pi pi-trash"
+                  size="small"
+                  severity="danger"
+                  outlined
+                  class="action-button"
+                  :loading="deletingInvitationId === inv.id"
+                  @click="deleteInvitation(inv.id)"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <template #footer>
@@ -107,6 +157,7 @@ import InputNumber from 'primevue/inputnumber'
 import InputText from 'primevue/inputtext'
 import Dropdown from 'primevue/dropdown'
 import Button from 'primevue/button'
+import Tag from 'primevue/tag'
 import { useToast } from 'primevue/usetoast'
 import { adminApi, User } from '@/services/api/admin'
 import { groupsApi } from '@/services/api/groups'
@@ -121,7 +172,8 @@ export default defineComponent({
     InputNumber,
     InputText,
     Dropdown,
-    Button
+    Button,
+    Tag
   },
   props: {
     visible: { type: Boolean, required: true },
@@ -138,6 +190,9 @@ export default defineComponent({
     const inviteExpires = ref(24)
     const inviteCreatedLink = ref('')
     const inviteCreating = ref(false)
+    const studentInvitations = ref<any[]>([])
+    const loadingInvitations = ref(false)
+    const deletingInvitationId = ref<number | null>(null)
 
     // следим за props.visible и синхронизируем локальную переменную
     watch(() => props.visible, (val) => {
@@ -152,6 +207,16 @@ export default defineComponent({
         inviteMessage.value = ''
         inviteExpires.value = 24
         inviteCreatedLink.value = ''
+        studentInvitations.value = []
+      }
+    })
+
+    // Загружаем приглашения при выборе студента
+    watch(selectedStudent, async (newStudent) => {
+      if (newStudent?.telegram_id) {
+        await loadStudentInvitations(newStudent.telegram_id)
+      } else {
+        studentInvitations.value = []
       }
     })
 
@@ -164,6 +229,20 @@ export default defineComponent({
         }))
       } catch (e) {
         console.error('Ошибка загрузки студентов', e)
+      }
+    }
+
+    const loadStudentInvitations = async (telegramId: number) => {
+      loadingInvitations.value = true
+      try {
+        const invitations = await groupsApi.getStudentInvitations(telegramId)
+        // Фильтруем только приглашения для текущей группы
+        studentInvitations.value = invitations.filter((inv: any) => inv.group_id === props.groupId)
+      } catch (err) {
+        console.error('Ошибка загрузки приглашений', err)
+        studentInvitations.value = []
+      } finally {
+        loadingInvitations.value = false
       }
     }
 
@@ -188,6 +267,10 @@ export default defineComponent({
             detail: 'Ссылка для приглашения успешно создана',
             life: 3000
           })
+          // Обновляем список приглашений, если студент выбран
+          if (selectedStudent.value?.telegram_id) {
+            await loadStudentInvitations(selectedStudent.value.telegram_id)
+          }
         }
       } catch (err) {
         toast.add({
@@ -199,6 +282,57 @@ export default defineComponent({
       } finally {
         inviteCreating.value = false
       }
+    }
+
+    const deleteInvitation = async (invitationId: number) => {
+      deletingInvitationId.value = invitationId
+      try {
+        await groupsApi.deleteInvitation(invitationId)
+        toast.add({
+          severity: 'success',
+          summary: 'Успешно',
+          detail: 'Приглашение удалено',
+          life: 3000
+        })
+        // Обновляем список приглашений
+        if (selectedStudent.value?.telegram_id) {
+          await loadStudentInvitations(selectedStudent.value.telegram_id)
+        }
+      } catch (err) {
+        toast.add({
+          severity: 'error',
+          summary: 'Ошибка',
+          detail: 'Не удалось удалить приглашение',
+          life: 3000
+        })
+      } finally {
+        deletingInvitationId.value = null
+      }
+    }
+
+    const getStatusLabel = (status: string) => {
+      const statusMap: Record<string, string> = {
+        'pending': 'Ожидает',
+        'accepted': 'Принято',
+        'declined': 'Отклонено',
+        'expired': 'Истекло'
+      }
+      return statusMap[status] || status
+    }
+
+    const formatDate = (dateString: string) => {
+      if (!dateString) return ''
+      return new Date(dateString).toLocaleString('ru-RU')
+    }
+
+    const copyLink = (link: string) => {
+      navigator.clipboard?.writeText(link)
+      toast.add({
+        severity: 'info',
+        summary: 'Скопировано',
+        detail: 'Ссылка скопирована в буфер обмена',
+        life: 2000
+      })
     }
 
     const copyInviteLink = () => {
@@ -220,8 +354,15 @@ export default defineComponent({
       inviteExpires,
       inviteCreatedLink,
       inviteCreating,
+      studentInvitations,
+      loadingInvitations,
+      deletingInvitationId,
       createInvitation,
       copyInviteLink,
+      deleteInvitation,
+      getStatusLabel,
+      formatDate,
+      copyLink,
       close
     }
   }
@@ -245,5 +386,84 @@ export default defineComponent({
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.invitations-list {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--surface-ground);
+  border-radius: 8px;
+}
+
+.invitations-list h4 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.invitation-item {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: var(--surface-card);
+  border-radius: 6px;
+  border: 1px solid var(--surface-border);
+}
+
+.invitation-item:last-child {
+  margin-bottom: 0;
+}
+
+.invitation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.invitation-group {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.invitation-link {
+  margin-bottom: 0.5rem;
+}
+
+.link-input {
+  width: 100%;
+  font-size: 0.85rem;
+}
+
+.invitation-message {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: var(--surface-50);
+  border-radius: 4px;
+  color: var(--text-color-secondary);
+}
+
+.invitation-dates {
+  margin-top: 0.5rem;
+  color: var(--text-color-secondary);
+}
+
+.invitation-actions {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--surface-border);
+}
+
+.invitation-actions br {
+  display: block;
+  margin: 5px 0;
+  content: "";
+}
+
+.action-button {
+  width: 100%;
+}
+
+.invitation-actions .p-button:not(:last-child) {
+  margin-bottom: 5px;
 }
 </style>

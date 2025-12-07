@@ -27,22 +27,38 @@ async def get_teacher_by_id(db: AsyncSession, teacher_id: str) -> Optional[model
 
 async def create_teacher(db: AsyncSession, teacher: TeacherCreate) -> models.Teacher:
     """Создать нового преподавателя"""
-    db_teacher = models.Teacher(
-        telegram_id=teacher.telegram_id,
-        bio=teacher.bio,
-        specialization=teacher.specialization,
-        experience_years=teacher.experience_years,
-        education=teacher.education,
-        certificates=json.dumps(teacher.certificates) if teacher.certificates else None,
-        hourly_rate=teacher.hourly_rate
-    )
-    db.add(db_teacher)
-    await db.commit()
-    await db.refresh(db_teacher)
+    print(f"[CRUD] Creating teacher with telegram_id: {teacher.telegram_id}")
+    print(f"[CRUD] Teacher data: bio={teacher.bio}, specialization={teacher.specialization}, experience={teacher.experience_years}, education={teacher.education}, hourly_rate={teacher.hourly_rate}")
 
-    if db_teacher.certificates:
-        db_teacher.certificates = json.loads(db_teacher.certificates)
-    return db_teacher
+    try:
+        db_teacher = models.Teacher(
+            telegram_id=teacher.telegram_id,
+            bio=teacher.bio,
+            specialization=teacher.specialization,
+            experience_years=teacher.experience_years or 0,
+            education=teacher.education,
+            certificates=json.dumps(teacher.certificates) if teacher.certificates else None,
+            hourly_rate=teacher.hourly_rate
+        )
+        print(f"[CRUD] Teacher model created, adding to session...")
+        db.add(db_teacher)
+        print(f"[CRUD] Committing to database...")
+        await db.commit()
+        print(f"[CRUD] Committed, refreshing teacher...")
+        await db.refresh(db_teacher)
+        print(f"[CRUD] Teacher created with id: {db_teacher.id}")
+
+        if db_teacher.certificates:
+            db_teacher.certificates = json.loads(db_teacher.certificates)
+
+        print(f"[CRUD] Returning teacher: id={db_teacher.id}, telegram_id={db_teacher.telegram_id}")
+        return db_teacher
+    except Exception as e:
+        print(f"[CRUD] Error in create_teacher: {str(e)}")
+        import traceback
+        print(f"[CRUD] Traceback: {traceback.format_exc()}")
+        await db.rollback()
+        raise
 
 async def update_teacher(db: AsyncSession, db_teacher: models.Teacher, teacher_update: TeacherUpdate) -> models.Teacher:
     """Обновить данные преподавателя"""

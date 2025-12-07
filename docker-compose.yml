@@ -31,8 +31,13 @@ services:
       - POSTGRES_DB=auth_db
       - DB_HOST=auth-db
       - ADMIN_TELEGRAM_IDS=7667986933,987654321
+      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672/
+      - NOTIFICATIONS_SERVICE_URL=http://notifications-service:8007
+      - FRONTEND_URL=https://unseemly-adorable-razorbill.cloudpub.ru
     depends_on:
       auth-db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     networks:
       - app-network
@@ -279,12 +284,18 @@ services:
     container_name: groups-service
     ports:
       - "8005:8005"
+    environment:
+      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672/
+      - AUTH_SERVICE_URL=http://auth-service:8002
+      - NOTIFICATIONS_SERVICE_URL=http://notifications-service:8007
     env_file:
       - ./groups-service/.env
     depends_on:
       groups-db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     networks:
       - app-network
@@ -336,12 +347,19 @@ services:
     container_name: lessons-service
     ports:
       - "8008:8008"
+    environment:
+      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672/
+      - AUTH_SERVICE_URL=http://auth-service:8002
+      - NOTIFICATIONS_SERVICE_URL=http://notifications-service:8007
+      - FRONTEND_URL=https://unseemly-adorable-razorbill.cloudpub.ru
     env_file:
       - ./lessons-service/.env
     depends_on:
       lessons-db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     networks:
       - app-network

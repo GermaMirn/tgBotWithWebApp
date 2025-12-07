@@ -379,14 +379,65 @@ export default defineComponent({
           }
         }
 
-    await teachersApi.createTeacherWithoutAuth({
-          telegram_id: this.userStore.userData?.telegram_id!,
-          specialization: specialization,
+        // Пытаемся создать учителя, если его еще нет
+        console.log('[RoleSwitch] Creating teacher with data:', {
+          telegram_id: this.userStore.userData?.telegram_id,
+          specialization,
           experience_years: Number(this.form.experience),
           hourly_rate: Number(this.form.hourlyRate),
           bio: this.form.description,
           education: this.form.education
         })
+
+        try {
+          const createdTeacher = await teachersApi.createTeacherWithoutAuth({
+            telegram_id: this.userStore.userData?.telegram_id!,
+            specialization: specialization,
+            experience_years: Number(this.form.experience),
+            hourly_rate: Number(this.form.hourlyRate),
+            bio: this.form.description,
+            education: this.form.education
+          })
+          console.log('[RoleSwitch] Teacher created successfully:', createdTeacher)
+        } catch (createError: any) {
+          console.error('[RoleSwitch] Error creating teacher:', createError)
+          console.error('[RoleSwitch] Error details:', {
+            status: createError?.response?.status,
+            data: createError?.response?.data,
+            message: createError?.message
+          })
+
+          // Если учитель уже существует (400), пытаемся обновить его данные
+          if (createError?.response?.status === 400 &&
+              (createError?.response?.data?.detail?.includes('already exists') ||
+               createError?.response?.data?.detail?.includes('Teacher with this telegram_id'))) {
+            console.log('[RoleSwitch] Teacher already exists, updating profile...')
+            try {
+              // Обновляем профиль через updateCurrentTeacher
+              const updatedTeacher = await teachersApi.updateCurrentTeacher({
+                specialization: specialization,
+                experience_years: Number(this.form.experience),
+                hourly_rate: Number(this.form.hourlyRate),
+                bio: this.form.description,
+                education: this.form.education
+              })
+              console.log('[RoleSwitch] Teacher updated successfully:', updatedTeacher)
+            } catch (updateError: any) {
+              console.error('[RoleSwitch] Error updating existing teacher:', updateError)
+              console.error('[RoleSwitch] Update error details:', {
+                status: updateError?.response?.status,
+                data: updateError?.response?.data,
+                message: updateError?.message
+              })
+              // Не выбрасываем ошибку, так как учитель уже существует
+              // Просто продолжаем
+            }
+          } else {
+            // Если другая ошибка, выбрасываем её
+            throw createError
+          }
+        }
+
         this.formSubmitted = true
         this.$toast.add({ severity: 'success', summary: 'Готово', detail: 'Вы стали учителем!', life: 4000 })
       } catch (err: any) {

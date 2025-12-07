@@ -17,7 +17,14 @@ export default defineConfig({
       port: 5173,
       host: 'localhost'
     },
-    proxy: {},
+    proxy: {
+      '/api': {
+        target: 'https://unseemly-adorable-razorbill.cloudpub.ru',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path, // Не перезаписываем путь, так как API уже на /api
+      }
+    },
     headers: {
       'Access-Control-Allow-Origin': '*'
     },

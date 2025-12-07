@@ -402,3 +402,55 @@ async def accept_invitation(invite_token: str):
     "message": "You have joined the group",
     "group": group_data
   }
+
+@router.get("/invitations/student/{student_telegram_id}")
+async def get_student_invitations(
+  student_telegram_id: int,
+  authorization: Optional[str] = Header(None),
+  current_user: dict = Depends(get_current_user)
+):
+  """Получить список приглашений для студента"""
+  token = await get_token_from_header(authorization)
+  async with httpx.AsyncClient() as client:
+    try:
+      resp = await client.get(
+        f"{GROUPS_SERVICE_URL}/groups/invitations/student/{student_telegram_id}",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10
+      )
+      if resp.status_code == 401:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+      if resp.status_code == 403:
+        raise HTTPException(status_code=403, detail=resp.text)
+      if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+      return resp.json()
+    except httpx.RequestError as e:
+      raise HTTPException(status_code=502, detail=f"groups-service error: {str(e)}")
+
+@router.delete("/invitations/{invitation_id}")
+async def delete_invitation(
+  invitation_id: int,
+  authorization: Optional[str] = Header(None),
+  current_user: dict = Depends(get_current_user)
+):
+  """Удалить приглашение"""
+  token = await get_token_from_header(authorization)
+  async with httpx.AsyncClient() as client:
+    try:
+      resp = await client.delete(
+        f"{GROUPS_SERVICE_URL}/groups/invitations/{invitation_id}",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10
+      )
+      if resp.status_code == 401:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+      if resp.status_code == 403:
+        raise HTTPException(status_code=403, detail=resp.text)
+      if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="Invitation not found")
+      if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+      return resp.json()
+    except httpx.RequestError as e:
+      raise HTTPException(status_code=502, detail=f"groups-service error: {str(e)}")

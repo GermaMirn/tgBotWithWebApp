@@ -173,6 +173,7 @@ async def get_lesson_participants(
 async def remove_student_from_lesson(
     lesson_id: int,
     student_id: UUID,
+    cancelled_by_telegram_id: Optional[int] = Query(None, description="Telegram ID пользователя, который отменяет запись"),
     db: AsyncSession = Depends(get_async_db)
 ):
     """
@@ -182,7 +183,7 @@ async def remove_student_from_lesson(
     if not participant:
         raise HTTPException(404, "Student not found in this lesson")
 
-    await crud.remove_participant(db, participant)
+    await crud.remove_participant(db, participant, cancelled_by_telegram_id)
     return None
 
 @router.delete("/{lesson_id}/participants/group/{group_id}", status_code=204)

@@ -8,11 +8,11 @@
     <div class="booking-details" v-if="slot && date">
       <div class="booking-info">
         <p><strong>Название:</strong> {{ slot.lesson.title }}</p>
-        <p><strong>Описани:</strong> {{ slot.lesson.description }}</p>
+        <p><strong>Описание:</strong> {{ slot.lesson.description }}</p>
         <p><strong>Дата:</strong> {{ formatDate(date) }}</p>
         <p><strong>Время:</strong> {{ slot.time }}</p>
-        <p><strong>Тип:</strong> {{ slot.lesson.lesson_type }}</p>
-        <p><strong>Язык:</strong> {{ slot.lesson.language }}</p>
+        <p><strong>Тип:</strong> {{ getLessonTypeLabel(slot.lesson.lesson_type) }}</p>
+        <p><strong>Язык:</strong> {{ getLanguageLabel(slot.lesson.language) }}</p>
         <p><strong>Уровень:</strong> {{ slot.lesson.level }}</p>
 
         <div class="detail-section">
@@ -95,7 +95,19 @@ export default defineComponent({
     visible: { type: Boolean, required: true },
     slot: { type: Object as PropType<TimeSlotResponse | null>, default: null },
     date: { type: Object as PropType<Date | null>, default: null },
-    loading: { type: Boolean, default: false }
+    loading: { type: Boolean, default: false },
+    lessonTypes: { 
+      type: Array as PropType<{ label: string; value: string }[]>, 
+      default: () => [
+        { label: "Индивидуальный", value: "INDIVIDUAL" },
+        { label: "Групповой", value: "GROUP" },
+        { label: "Пробный", value: "TRIAL" }
+      ]
+    },
+    languageOptions: { 
+      type: Array as PropType<{ label: string; value: string }[]>, 
+      default: () => []
+    }
   },
   emits: ['update:visible', 'confirm', 'cancel', 'delete'],
   setup(props, { emit }) {
@@ -115,7 +127,32 @@ export default defineComponent({
 
     const isTeacher = computed(() => userStore.userData?.role === 'teacher')
 
-    return { visibleLocal, isTeacher, userStore, close, confirm, deleteLesson, cancelBooking, formatDate }
+    // Функция для получения названия типа урока
+    const getLessonTypeLabel = (lessonType: string | null | undefined): string => {
+      if (!lessonType) return 'Не указан'
+      const type = props.lessonTypes.find(t => t.value === lessonType)
+      return type ? type.label : lessonType
+    }
+
+    // Функция для получения названия языка
+    const getLanguageLabel = (language: string | null | undefined): string => {
+      if (!language) return 'Не указан'
+      const lang = props.languageOptions.find(l => l.value === language)
+      return lang ? lang.label : language
+    }
+
+    return { 
+      visibleLocal, 
+      isTeacher, 
+      userStore, 
+      close, 
+      confirm, 
+      deleteLesson, 
+      cancelBooking, 
+      formatDate,
+      getLessonTypeLabel,
+      getLanguageLabel
+    }
   }
 })
 </script>

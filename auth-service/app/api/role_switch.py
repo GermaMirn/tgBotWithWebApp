@@ -3,9 +3,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app import crud, schemas
 from app.utils.auth import get_current_user
+from app.core.rabbitmq import rabbitmq_client
 import secrets
 from datetime import datetime, timedelta, timezone
 from app.utils.auth import create_access_token
+import os
+import logging
+import httpx
+
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/role")
 
@@ -50,6 +57,42 @@ async def create_role_switch_link(
         token=token,
         expires_at=expires_at
     )
+
+    # Отправляем уведомление в Telegram, если создается ссылка для преподавателя
+    if link_data.target_role == "teacher" and link_data.target_user_id:
+        try:
+            # Получаем пользователя для получения telegram_id
+            target_user = await crud.get_user(db, link_data.target_user_id)
+            if target_user and target_user.telegram_id:
+                # Формируем URL ссылки
+                frontend_url = os.getenv("FRONTEND_URL", "https://unseemly-adorable-razorbill.cloudpub.ru")
+                switch_url = f"{frontend_url}/role-switch/{token}"
+
+                # Формируем сообщение
+                title = "🎓 Приглашение стать преподавателем"
+                message = (
+                    f"Здравствуйте, {target_user.full_name}!\n\n"
+                    f"Ваша ссылка для того, чтобы стать преподавателем в нашей студии иностранных языков:\n"
+                    f"{switch_url}\n\n"
+                    f"Ссылка действительна для 1 перехода на страницу.\n"
+                    f"Срок действия: {link_data.expires_in_hours} {'час' if link_data.expires_in_hours == 1 else 'часов'}"
+                )
+
+                # Отправляем уведомление через RabbitMQ
+                notification_data = {
+                    "chat_id": target_user.telegram_id,
+                    "title": title,
+                    "message": message,
+                    "notification_type": "role_switch",
+                    "user_id": str(target_user.id),
+                    "telegram_id": target_user.telegram_id
+                }
+
+                await rabbitmq_client.publish_notification(notification_data, routing_key="telegram")
+                logger.info(f"Role switch notification sent to user {target_user.telegram_id}")
+        except Exception as e:
+            # Логируем ошибку, но не прерываем создание ссылки
+            logger.error(f"Failed to send role switch notification: {e}")
 
     return link
 
@@ -149,12 +192,14 @@ async def switch_user_role(
         if target_role == 'teacher':
             # Если переключаемся на учителя, удаляем профиль студента
             await crud.delete_student_profile(db, target_user.telegram_id)
+            # Создаем профиль учителя в teachers-service, если его еще нет
+            await crud.create_teacher_profile_if_not_exists(db, target_user.telegram_id)
         elif target_role == 'student':
             # Если переключаемся на студента, удаляем профиль учителя
             await crud.delete_teacher_profile(db, target_user.telegram_id)
     except Exception as e:
         # Логируем ошибку, но не прерываем процесс
-        print(f"Warning: Could not delete old profile: {e}")
+        print(f"Warning: Could not delete old profile or create teacher profile: {e}")
 
     return {
         "success": True,
@@ -237,11 +282,13 @@ async def switch_role(
         if link.target_role == 'teacher':
             # Если переключаемся на учителя, удаляем профиль студента
             await crud.delete_student_profile(db, target_user.telegram_id)
+            # Создаем профиль учителя в teachers-service, если его еще нет
+            await crud.create_teacher_profile_if_not_exists(db, target_user.telegram_id)
         elif link.target_role == 'student':
             # Если переключаемся на студента, удаляем профиль учителя
             await crud.delete_teacher_profile(db, target_user.telegram_id)
     except Exception as e:
-        print(f"Warning: Could not delete old profile: {e}")
+        print(f"Warning: Could not delete old profile or create teacher profile: {e}")
 
     # Отмечаем ссылку как использованную
     await crud.mark_role_switch_link_as_used(

@@ -14,10 +14,20 @@ export default defineComponent({
     const isInitialized = ref(false);
     const isAuthChecked = ref(false);
 
+    // Проверяем режим работы приложения
+    const isDevMode = import.meta.env.VITE_APP_MODE === 'dev';
+
     // Надежная проверка Telegram WebApp
     const checkTelegram = () => {
       const tg = window.Telegram?.WebApp;
-      if (tg?.initData || tg?.initDataUnsafe?.user) {
+      // В dev режиме всегда разрешаем доступ
+      if (isDevMode) {
+        isTelegram.value = true;
+        if (tg) {
+          tg.expand();
+          tg.enableClosingConfirmation();
+        }
+      } else if (tg?.initData || tg?.initDataUnsafe?.user) {
         isTelegram.value = true;
         tg.expand();
         tg.enableClosingConfirmation();
@@ -41,6 +51,11 @@ export default defineComponent({
       try {
         const tg = window.Telegram?.WebApp;
 
+        if (isDevMode) {
+          console.log('[Dev Mode] Checking authentication, Telegram WebApp:', !!tg);
+          console.log('[Dev Mode] User data:', tg?.initDataUnsafe?.user);
+        }
+
         // Всегда делаем запрос на login для обновления данных пользователя
         if (tg?.initDataUnsafe?.user) {
           const userData = tg.initDataUnsafe.user;
@@ -54,18 +69,54 @@ export default defineComponent({
           // Безопасно обрабатываем данные пользователя
           const loginData = sanitizeUserData(userData);
 
-          // Всегда делаем login для обновления данных
-          await userStore.login(loginData);
+          if (isDevMode) {
+            console.log('[Dev Mode] Attempting login with:', loginData);
+          }
+
+          try {
+            // Всегда делаем login для обновления данных
+            await userStore.login(loginData);
+
+            if (isDevMode) {
+              console.log('[Dev Mode] Login successful, authenticated:', userStore.isAuthenticated);
+            }
+          } catch (loginError: any) {
+            // В dev режиме, если ошибка сети/CORS, пропускаем аутентификацию
+            if (isDevMode && (loginError.code === 'ERR_NETWORK' || loginError.message?.includes('CORS'))) {
+              console.log('[Dev Mode] Network/CORS error during login, skipping authentication in dev mode');
+              // Не выбрасываем ошибку, просто продолжаем без аутентификации
+            } else {
+              throw loginError;
+            }
+          }
         } else {
           // Если нет данных Telegram, но есть токен, проверяем его
           if (userStore.hasToken) {
-            await userStore.fetchCurrentUser();
+            try {
+              await userStore.fetchCurrentUser();
+            } catch (fetchError: any) {
+              // В dev режиме, если ошибка сети/CORS, пропускаем
+              if (isDevMode && (fetchError.code === 'ERR_NETWORK' || fetchError.message?.includes('CORS'))) {
+                console.log('[Dev Mode] Network/CORS error during fetch, skipping in dev mode');
+              } else {
+                throw fetchError;
+              }
+            }
+          } else if (isDevMode) {
+            // В dev режиме, если нет токена и нет данных пользователя, просто помечаем как проверенное
+            console.log('[Dev Mode] No authentication data, but allowing access');
           }
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Authentication check failed:', error);
-        // Если что-то пошло не так, очищаем данные
-        userStore.logout();
+        // В dev режиме не очищаем данные при ошибке сети/CORS, чтобы можно было тестировать
+        if (!isDevMode) {
+          userStore.logout();
+        } else if (error.code === 'ERR_NETWORK' || error.message?.includes('CORS')) {
+          console.log('[Dev Mode] Network/CORS error, but continuing in dev mode');
+        } else {
+          console.log('[Dev Mode] Authentication error, but continuing in dev mode');
+        }
       } finally {
         isAuthChecked.value = true;
       }
@@ -91,6 +142,11 @@ export default defineComponent({
     watch(
       () => router.currentRoute.value.path,
       (newPath) => {
+        // В dev режиме разрешаем доступ из браузера
+        if (isDevMode) {
+          return;
+        }
+
         // Исключаем маршруты, которые должны работать вне Telegram Mini App
         const allowedPaths = ['/web', '/role-switch', '/groups/invite'];
         const isAllowedPath = allowedPaths.some(path => newPath.startsWith(path));
@@ -106,7 +162,8 @@ export default defineComponent({
       isTelegram,
       isInitialized,
       isAuthChecked,
-      userStore
+      userStore,
+      isDevMode
     };
   }
 });
@@ -115,7 +172,7 @@ export default defineComponent({
 <template>
   <Default>
     <template v-if="isInitialized && isAuthChecked">
-      <router-view v-if="isTelegram || $route.path === '/web' || $route.path.startsWith('/role-switch') || $route.path.startsWith('/groups/invite')" />
+      <router-view v-if="isTelegram || isDevMode || $route.path === '/web' || $route.path.startsWith('/role-switch') || $route.path.startsWith('/groups/invite')" />
       <div v-else class="redirect-message">
         Перенаправление в Telegram Mini App...
       </div>

@@ -1,6 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import groups
+from app.core.rabbitmq import rabbitmq_client
+import logging
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="groups-service",
@@ -27,3 +31,13 @@ async def health_check():
 
 # Подключаем роутеры
 app.include_router(groups.router, prefix="/groups", tags=["groups"])
+
+@app.on_event("startup")
+async def startup_event():
+    """Инициализация RabbitMQ при запуске приложения"""
+    await rabbitmq_client.connect()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Закрытие соединения с RabbitMQ при остановке приложения"""
+    await rabbitmq_client.close()

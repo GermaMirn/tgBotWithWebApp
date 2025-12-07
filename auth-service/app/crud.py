@@ -203,6 +203,61 @@ async def delete_teacher_profile(db: AsyncSession, telegram_id: int):
     print(f"Exception in delete_teacher_profile: {e}")
     return False
 
+async def create_teacher_profile_if_not_exists(db: AsyncSession, telegram_id: int):
+  """Создает профиль учителя в teachers-service, если его еще нет"""
+  try:
+    print(f"[Auth Service] Creating teacher profile if not exists for telegram_id: {telegram_id}")
+    async with httpx.AsyncClient() as client:
+      # Проверяем, существует ли уже учитель
+      get_response = await client.get(
+        f"http://teachers-service:8003/teachers/by-telegram/{telegram_id}",
+        timeout=10
+      )
+
+      if get_response.status_code == 200:
+        print(f"[Auth Service] Teacher profile already exists for telegram_id: {telegram_id}")
+        return True
+
+      if get_response.status_code != 404:
+        print(f"[Auth Service] Unexpected status when checking teacher: {get_response.status_code}")
+        return False
+
+      # Учителя нет, создаем его с минимальными данными
+      print(f"[Auth Service] Teacher not found, creating new teacher profile...")
+      create_response = await client.post(
+        f"http://teachers-service:8003/teachers/create-without-auth",
+        json={
+          "telegram_id": telegram_id,
+          "bio": None,
+          "specialization": None,
+          "experience_years": 0,
+          "education": None,
+          "certificates": [],
+          "hourly_rate": None
+        },
+        timeout=10
+      )
+
+      if create_response.status_code == 201:
+        print(f"[Auth Service] Teacher profile created successfully for telegram_id: {telegram_id}")
+        return True
+      elif create_response.status_code == 400:
+        # Учитель уже существует (race condition)
+        print(f"[Auth Service] Teacher already exists (race condition) for telegram_id: {telegram_id}")
+        return True
+      else:
+        error_text = create_response.text
+        print(f"[Auth Service] Failed to create teacher profile: {create_response.status_code} - {error_text}")
+        return False
+  except httpx.RequestError as e:
+    print(f"[Auth Service] Request error creating teacher profile: {e}")
+    return False
+  except Exception as e:
+    print(f"[Auth Service] Exception creating teacher profile: {e}")
+    import traceback
+    print(f"[Auth Service] Traceback: {traceback.format_exc()}")
+    return False
+
 async def get_users_by_telegram_ids(db: AsyncSession, ids: List[int]) -> List[models.User]:
   """Получить пользователей по списку telegram_id"""
   result = await db.execute(

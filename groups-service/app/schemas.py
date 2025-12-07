@@ -78,6 +78,6 @@ class AddMemberRequest(BaseModel):
 
 class InvitationCreateRequest(BaseModel):
   group_id: int
-  student_telegram_id: int
+  student_telegram_id: Optional[int] = None
   expires_in_hours: Optional[int] = Field(default=24, gt=0)
-  message: Optional[str]
+  message: Optional[str] = None

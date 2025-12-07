@@ -308,11 +308,13 @@ async def remove_student_from_lesson_bff(
   """
   Отписать студента от занятия
   """
-  await get_current_user_telegram_id(authorization)
+  current_user_telegram_id = await get_current_user_telegram_id(authorization)
   async with httpx.AsyncClient() as client:
     try:
+      # Передаем telegram_id текущего пользователя в query параметре
       resp = await client.delete(
         f"{LESSONS_SERVICE_URL}/lessons/{lesson_id}/participants/{student_id}",
+        params={"cancelled_by_telegram_id": current_user_telegram_id},
         timeout=10
       )
       resp.raise_for_status()

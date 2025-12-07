@@ -21,7 +21,7 @@ async def get_languages(
         timeout=10
       )
       if response.status_code != 200:
-        error_text = await response.text()
+        error_text = response.text
         raise HTTPException(status_code=response.status_code, detail=error_text)
       return response.json()
   except Exception as e:
@@ -69,7 +69,7 @@ async def create_language(
         timeout=10
       )
       if response.status_code != 201:
-        error_text = await response.text()
+        error_text = response.text
         raise HTTPException(status_code=response.status_code, detail=error_text)
       return response.json()
   except Exception as e:
@@ -94,7 +94,7 @@ async def update_language(
         timeout=10
       )
       if response.status_code != 200:
-        error_text = await response.text()
+        error_text = response.text
         raise HTTPException(status_code=response.status_code, detail=error_text)
       return response.json()
   except Exception as e:
@@ -117,7 +117,7 @@ async def delete_language(
         timeout=10
       )
       if response.status_code != 204:
-        error_text = await response.text()
+        error_text = response.text
         raise HTTPException(status_code=response.status_code, detail=error_text)
       return None
   except Exception as e:

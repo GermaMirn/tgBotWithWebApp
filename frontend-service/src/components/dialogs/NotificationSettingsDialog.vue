@@ -7,24 +7,27 @@
     :breakpoints="{ '960px': '75vw', '641px': '90vw' }"
   >
     <div class="notification-settings">
-      <!-- Сообщение если нет chat_id -->
+      <!-- Сообщение если уведомления включены -->
       <Message
-        v-if="!hasChatId"
+        v-if="localSettings.telegram_enabled"
+        severity="success"
+        :closable="false"
+        class="mb-3"
+      >
+        <div class="flex flex-column gap-2">
+          <div>✅ Уведомления включены. Вы будете получать уведомления в Telegram о занятиях и событиях.</div>
+        </div>
+      </Message>
+
+      <!-- Сообщение если уведомления выключены -->
+      <Message
+        v-if="!localSettings.telegram_enabled"
         severity="warn"
         :closable="false"
         class="mb-3"
       >
         <div class="flex flex-column gap-2">
-          <div>Для включения уведомлений нужно зарегистрировать чат в боте.</div>
-          <div class="flex align-items-center gap-2">
-            <span>Используйте команду:</span>
-            <code class="bg-gray-100 px-2 py-1 rounded">/notification</code>
-            <Button
-              label="Открыть бота"
-              size="small"
-              @click="openTelegramBot"
-            />
-          </div>
+          <div>🔕 Уведомления выключены. Вы не будете получать уведомления в Telegram.</div>
         </div>
       </Message>
 
@@ -36,7 +39,6 @@
         </div>
         <InputSwitch
           v-model="localSettings.telegram_enabled"
-          :disabled="!hasChatId"
         />
       </div>
 

@@ -45,11 +45,13 @@
             <Dropdown
               id="lesson_language"
               v-model="lesson.language"
-              :options="languageOptions"
+              :options="filteredLanguageOptions"
               optionLabel="label"
               optionValue="value"
               placeholder=" "
               class="w-full"
+              :loading="loadingTeacher"
+              :disabled="loadingTeacher"
             />
             <label for="lesson_language">Язык</label>
           </FloatLabel>
@@ -125,7 +127,7 @@
 </template>
 
 <script lang="ts">
-import { defineComponent, PropType, ref, watch } from 'vue'
+import { defineComponent, PropType, ref, watch, computed } from 'vue'
 import Dialog from 'primevue/dialog'
 import Button from 'primevue/button'
 import InputGroup from 'primevue/inputgroup'
@@ -134,6 +136,8 @@ import FloatLabel from 'primevue/floatlabel'
 import InputText from 'primevue/inputtext'
 import Dropdown from 'primevue/dropdown'
 import Calendar from 'primevue/calendar'
+import { useUserStore } from '@/stores/user'
+import { teachersApi } from '@/services/api/teachers'
 
 export default defineComponent({
   name: 'CreateLessonDialog',
@@ -144,18 +148,159 @@ export default defineComponent({
     session: { type: Object as PropType<{ start_time: Date | null, end_time: Date | null }>, required: true },
     lessonTypes: { type: Array as PropType<{ label: string; value: string }[]>, required: true },
     languageOptions: { type: Array as PropType<{ label: string; value: string }[]>, required: true },
+    daySettings: {
+      type: Object as PropType<{
+        startTime: string,
+        endTime: string,
+        lessons: any[]
+      }>,
+      default: () => ({ startTime: '09:00', endTime: '18:00', lessons: [] })
+    },
+    selectedDate: { type: Date as PropType<Date | null>, default: null }
   },
   emits: ['update:visible', 'save', 'cancel'],
   setup(props, { emit }) {
+    const userStore = useUserStore()
     const visibleLocal = ref(props.visible)
+    const teacherLanguages = ref<string[]>([])
+    const loadingTeacher = ref(false)
 
-    watch(() => props.visible, val => (visibleLocal.value = val))
+    // Фильтруем языки по преподавателю
+    const filteredLanguageOptions = computed(() => {
+      if (teacherLanguages.value.length === 0) {
+        // Если языки преподавателя не загружены, показываем все
+        return props.languageOptions
+      }
+      // Фильтруем только те языки, которые есть у преподавателя
+      return props.languageOptions.filter(lang =>
+        teacherLanguages.value.some(tl =>
+          tl.toLowerCase().includes(lang.label.toLowerCase()) ||
+          tl.toLowerCase().includes(lang.value.toLowerCase())
+        )
+      )
+    })
+
+    // Загружаем языки преподавателя
+    const loadTeacherLanguages = async () => {
+      if (!userStore.isTeacher || !userStore.userData?.telegram_id) return
+
+      loadingTeacher.value = true
+      try {
+        const teacher = await teachersApi.getCurrentTeacher()
+        if (teacher?.specialization) {
+          // Парсим specialization: "Математика (Языки: Английский, Китайский)"
+          const langMatch = teacher.specialization.match(/Языки:\s*([^)]+)/i)
+          if (langMatch) {
+            teacherLanguages.value = langMatch[1].split(',').map(l => l.trim())
+          } else {
+            // Если формат другой, пытаемся извлечь языки из всей строки
+            teacherLanguages.value = [teacher.specialization]
+          }
+        }
+      } catch (error) {
+        console.error('Error loading teacher languages:', error)
+      } finally {
+        loadingTeacher.value = false
+      }
+    }
+
+    // Вычисляем начальное время на основе рабочего времени и занятых слотов
+    const calculateStartTime = (): Date => {
+      const today = new Date()
+      const selectedDate = props.selectedDate || today
+
+      // Парсим время начала рабочего дня
+      const [startHour, startMinute] = props.daySettings.startTime.split(':').map(Number)
+      const startTime = new Date(selectedDate)
+      startTime.setHours(startHour, startMinute, 0, 0)
+
+      // Получаем занятые слоты
+      const bookedSlots = props.daySettings.lessons || []
+
+      // Находим следующий свободный час
+      let currentTime = new Date(startTime)
+      const endTime = new Date(selectedDate)
+      const [endHour, endMinute] = props.daySettings.endTime.split(':').map(Number)
+      endTime.setHours(endHour, endMinute, 0, 0)
+
+      // Проверяем каждый час, пока не найдем свободный
+      while (currentTime < endTime) {
+        const isBooked = bookedSlots.some((lesson: any) => {
+          // Проверяем разные форматы данных
+          let lessonStart: Date | null = null
+          let lessonEnd: Date | null = null
+
+          if (lesson.start_time && lesson.end_time) {
+            lessonStart = new Date(lesson.start_time)
+            lessonEnd = new Date(lesson.end_time)
+          } else if (lesson.raw?.start_time && lesson.raw?.end_time) {
+            lessonStart = new Date(lesson.raw.start_time)
+            lessonEnd = new Date(lesson.raw.end_time)
+          }
+
+          if (!lessonStart || !lessonEnd) return false
+
+          // Проверяем пересечение: текущее время попадает в занятый слот
+          return currentTime >= lessonStart && currentTime < lessonEnd
+        })
+
+        if (!isBooked) {
+          return new Date(currentTime)
+        }
+
+        // Переходим к следующему часу
+        currentTime.setHours(currentTime.getHours() + 1)
+      }
+
+      // Если все время занято, возвращаем время начала смены
+      return new Date(startTime)
+    }
+
+    // Вычисляем время окончания (начало + 1 час)
+    const calculateEndTime = (startTime: Date): Date => {
+      const endTime = new Date(startTime)
+      endTime.setHours(endTime.getHours() + 1)
+      return endTime
+    }
+
+    // Инициализируем время при открытии диалога
+    watch(() => props.visible, async (val) => {
+      visibleLocal.value = val
+      if (val) {
+        // Загружаем языки преподавателя
+        await loadTeacherLanguages()
+
+        // Устанавливаем время начала и окончания
+        const startTime = calculateStartTime()
+        const endTime = calculateEndTime(startTime)
+
+        // Обновляем session через родительский компонент
+        if (props.session) {
+          props.session.start_time = startTime
+          props.session.end_time = endTime
+        }
+      }
+    })
+
     watch(visibleLocal, val => emit('update:visible', val))
+
+    // Обновляем время окончания при изменении времени начала
+    watch(() => props.session.start_time, (newStartTime) => {
+      if (newStartTime && props.session) {
+        props.session.end_time = calculateEndTime(newStartTime)
+      }
+    })
 
     const close = () => (visibleLocal.value = false)
     const save = () => emit('save')
 
-    return { visibleLocal, close, save }
+    return {
+      visibleLocal,
+      close,
+      save,
+      filteredLanguageOptions,
+      loadingTeacher
+    }
   }
 })
 </script>

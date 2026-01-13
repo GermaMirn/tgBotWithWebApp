@@ -1,2 +1,4 @@
 node_modules
 /.vscode
+eslint.config.ts
+.lintstagedrc.*

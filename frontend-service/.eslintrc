@@ -5,15 +5,16 @@
 		"node":true
 	},
 	"extends": ["airbnb/base"],
+	"ignorePatterns": ["eslint.config.ts", "eslint.config.js", "eslint.config.mjs"],
 	"rules":{
 		"semi": "off",
 		"no-plusplus": "off",
-		"eol-lasr": "off",
+		"eol-last": "off",
 		"max-len": ["error", 150, { "ignoreUrls":true}],
 		"no-tabs": "off",
 		"no-alert": "off",
 		"prefer-destructuring": "off",
-		"indent": [2, "tab"],
+		"indent": "off",
 		"no-param-reassign": "off"
 
 

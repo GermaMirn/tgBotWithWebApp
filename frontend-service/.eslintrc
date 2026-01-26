@@ -1,0 +1,22 @@
+{
+	"env": {
+		"browser": true,
+		"es6": true,
+		"node":true
+	},
+	"extends": ["airbnb/base"],
+	"ignorePatterns": ["eslint.config.ts", "eslint.config.js", "eslint.config.mjs"],
+	"rules":{
+		"semi": "off",
+		"no-plusplus": "off",
+		"eol-last": "off",
+		"max-len": ["error", 150, { "ignoreUrls":true}],
+		"no-tabs": "off",
+		"no-alert": "off",
+		"prefer-destructuring": "off",
+		"indent": "off",
+		"no-param-reassign": "off"
+
+
+	}
+}
